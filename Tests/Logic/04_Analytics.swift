@@ -6,7 +6,9 @@ func grind(_ g: GameModel, to area: Int) {
         for i in 0..<30 { g.punch(i) }
         for t in g.zone.tools where g.toolState(t) == .affordable { g.buyTool(t) }
         if g.canBuy(.hireMiner) { g.buy(.hireMiner) }
-        for k in UpgradeKind.allCases where g.canBuy(k) { g.buy(k) }
+        // Save up for the first miner once it unlocks, so it's always hired along the way.
+        let savingForMiner = g.isUnlocked(.hireMiner) && g.minerCount(.digger) == 0
+        for k in UpgradeKind.allCases where g.canBuy(k) && !savingForMiner { g.buy(k) }
         n += 1
     }
 }

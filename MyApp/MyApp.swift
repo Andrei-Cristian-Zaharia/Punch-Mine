@@ -3,6 +3,8 @@ import SwiftUI
 @main struct MyApp: App {
     @StateObject private var game: GameModel
     @StateObject private var ads = AdCoordinator()
+    @StateObject private var feedback = GameFeedback()
+    @StateObject private var store = StoreService()
 
     init() {
         #if DEBUG
@@ -24,12 +26,22 @@ import SwiftUI
             ContentView()
                 .environmentObject(game)
                 .environmentObject(ads)
+                .environmentObject(feedback)
+                .environmentObject(store)
                 .onAppear {
-                    game.adsAvailable = ads.provider.isAvailable
+                    store.attach(to: game)
+                    ads.prepare(game: game)
+                    feedback.attach(to: game)
                     game.start()
                 }
                 .onChange(of: scenePhase) { phase in
-                    if phase == .active { game.start() } else { game.stop() }
+                    if phase == .active {
+                        game.start()
+                        feedback.sound.appBecameActive()
+                    } else {
+                        game.stop()
+                        feedback.sound.appWentInactive()
+                    }
                 }
         }
     }

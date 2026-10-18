@@ -183,7 +183,7 @@ enum Perk: String, Codable, CaseIterable, Identifiable {
         case .expressElevator: "Start each run at area \(1 + 2 * level)"
         case .prospector: "Treasure chance \(15 + 3 * level)%"
         case .luckyHaul: "Treasure pays +\(20 * level)%"
-        case .chestHunter: "\(5 * level)% chance treasure drops an extra chest"
+        case .chestHunter: "\(5 * level)% chance a treasure chest comes with a second one"
         case .surveyor: "−\(5 * level)% zone unlock coin costs"
         case .geodeSense: "Zone 2 treasure pays +50%"
         }
@@ -213,7 +213,7 @@ enum Perk: String, Codable, CaseIterable, Identifiable {
         case .expressElevator: "Start each run 2 areas deeper per level"
         case .prospector: "+3 points treasure chance per level"
         case .luckyHaul: "Treasure pays +20% per level"
-        case .chestHunter: "+5% chance per level of an extra chest from treasure"
+        case .chestHunter: "+5% chance per level that a treasure chest comes with a second one"
         case .surveyor: "−5% zone unlock costs per level"
         case .geodeSense: "Zone 2 treasure pays +50%"
         }
@@ -223,9 +223,16 @@ enum Perk: String, Codable, CaseIterable, Identifiable {
 enum Prestige {
     static let firstUnlockArea = 12
     static let floorBelowBest = 8
-    /// PC = floor(Z · 0.15 · (A − 5)²) + 2 · Z · max(0, A − A_best); the record bonus needs a previous prestige.
+    /// Past this area the depth reward grows linearly instead of with the square of depth.
+    static let quadraticUntil = 30
+
+    /// PC = floor(Z · 0.15 · (A − 5)²) up to area 30 (the design doc's table), then +3.75 · Z per area
+    /// (half the curve's slope at 30), so deep Pebble Quarry runs don't flood the perk tree.
+    /// Plus the record bonus 2 · Z · max(0, A − A_best), which needs a previous prestige.
     static func depthReward(area: Int, multiplier: Double = 1) -> Int {
-        Int((multiplier * 0.15 * pow(Double(max(area - 5, 0)), 2)).rounded(.down))
+        let a = Double(max(area - 5, 0)), knee = Double(quadraticUntil - 5)
+        let pc = area <= quadraticUntil ? 0.15 * a * a : 0.15 * knee * knee + 0.15 * knee * (a - knee)
+        return Int((multiplier * pc).rounded(.down))
     }
 
     static func recordBonus(area: Int, bestPrestigeArea: Int, multiplier: Double = 1) -> Int {

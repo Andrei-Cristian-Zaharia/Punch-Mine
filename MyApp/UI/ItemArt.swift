@@ -234,6 +234,155 @@ private struct ItemPainter {
             inked(rounded(12, 41, 39, 6, 3), 0x9FD0FF, 1.8)
             line(open([(18, 24), (27, 24)]), 0x9FD0FF, 2)
             sparkle(44, 14, 4)
+        // Plumber's Kit
+        case "plumbersCap":
+            var dome = Path(); dome.move(to: p(8, 36)); dome.addQuadCurve(to: p(44, 36), control: p(24, 0)); dome.closeSubpath()
+            inked(dome, 0xE0302A)
+            inked(Path(ellipseIn: r(26, 31, 26, 10)), 0xC0201C)
+            inked(circle(24, 22, 7), 0xFFFFFF, 1.6)
+            inked(circle(24, 22, 3), 0xE0302A, 1.2)
+            shine(13, 22, 5, 3)
+        case "plumbersOveralls":
+            inked(poly([(12, 8), (20, 8), (22, 22), (34, 22), (36, 8), (44, 8), (46, 50), (32, 50), (28, 40), (24, 50), (10, 50)]), 0x3A68D8)
+            for x in [17.0, 39] { inked(circle(x, 24, 3.6), 0xFFD23C, 1.4) }
+            inked(rounded(21, 30, 14, 9, 2), 0x2A50B0, 1.4)
+            shine(13, 30, 4, 6)
+        case "powerStar":
+            fill(circle(28, 29, 24), 0xFFE08A, 0.25)
+            let star = (0..<10).map { i -> (Double, Double) in
+                let a = Double(i) * .pi / 5 - .pi / 2, rad = i % 2 == 0 ? 23.0 : 10
+                return (28 + cos(a) * rad, 30 + sin(a) * rad)
+            }
+            inked(poly(star), 0xFFD23C, 2.2)
+            for x in [23.0, 33] { inked(rounded(x - 2, 23, 4, 9, 2), 0x1A120E, 0.5) }
+            shine(17, 21, 5, 3)
+            sparkle(48, 9, 4)
+        case "groundPoundBoots":
+            for (x, y) in [(6.0, 52.0), (28, 54), (50, 52)] { line(open([(x - 3, y), (x + 3, y)]), 0xFFE08A, 2) }
+            line(open([(28, 2), (28, 9)]), 0xFFFFFF, 2.2)
+            inked(poly([(12, 30), (14, 14), (30, 14), (32, 28), (48, 32), (50, 44), (10, 44)]), 0x8A4A20)
+            inked(rounded(8, 41, 44, 7, 3), 0x5A2E12, 1.8)
+            line(open([(14, 22), (30, 22)]), 0xE0302A, 3)
+            shine(18, 17, 5, 3)
+        // Blockcrafter's Gear
+        case "diamondHelm":
+            inked(poly([(8, 44), (8, 16), (14, 10), (42, 10), (48, 16), (48, 44), (38, 44), (38, 26), (18, 26), (18, 44)]), 0x5FE0E0)
+            fill(rounded(12, 14, 8, 6, 0), 0xC8FFFF)
+            fill(rounded(30, 14, 6, 4, 0), 0x3FB8C0)
+            fill(rounded(40, 30, 4, 8, 0), 0x3FB8C0)
+            fill(rounded(10, 32, 4, 6, 0), 0xC8FFFF)
+        case "craftingBelt":
+            inked(rounded(2, 22, 52, 12, 0), 0x9A6A3A)
+            for x in stride(from: 6.0, through: 46, by: 8) { fill(rounded(x, 24, 4, 4, 0), 0x7A4A22) }
+            inked(rounded(18, 12, 20, 22, 0), 0xB88A50)
+            for i in 0..<3 { for j in 0..<3 { fill(rounded(20 + Double(i) * 6, 14 + Double(j) * 6, 4, 4, 0), (i + j) % 2 == 0 ? 0x6A4020 : 0xD8A868) } }
+            context.stroke(rounded(18, 12, 20, 22, 0), with: .color(ink), lineWidth: 2 * s)
+        case "creeperCharm":
+            for y in [3.0, 8] { context.stroke(circle(28, y, 2.4), with: .color(Color(hex: 0xC8D0DC)), lineWidth: 1.6 * s) }
+            inked(rounded(10, 12, 36, 36, 0), 0x5FC050)
+            fill(rounded(14, 16, 6, 6, 0), 0x8FE070); fill(rounded(36, 38, 6, 6, 0), 0x3FA040)
+            fill(rounded(16, 22, 8, 8, 0), 0x1A120E); fill(rounded(32, 22, 8, 8, 0), 0x1A120E)
+            fill(poly([(24, 30), (32, 30), (32, 34), (36, 34), (36, 44), (32, 44), (32, 40), (24, 40), (24, 44), (20, 44), (20, 34), (24, 34)]), 0x1A120E)
+        case "diamondBoots":
+            inked(poly([(10, 46), (10, 12), (26, 12), (26, 32), (48, 32), (48, 46)]), 0x5FE0E0)
+            fill(rounded(13, 15, 6, 6, 0), 0xC8FFFF)
+            fill(rounded(36, 35, 6, 4, 0), 0xC8FFFF)
+            fill(rounded(18, 38, 6, 5, 0), 0x3FB8C0)
+            line(open([(10, 40), (48, 40)]), 0x3FB8C0, 2)
+        // Hero's Garb
+        case "herosCap":
+            inked(poly([(8, 42), (22, 12), (30, 8), (36, 12), (52, 50), (40, 40), (30, 38)]), 0x3FB050)
+            inked(rounded(6, 38, 28, 8, 4), 0x2A8A3A, 1.8)
+            line(open([(24, 14), (36, 40)]), 0x8FE070, 2)
+            shine(23, 18, 4, 5)
+        case "rupeeWallet":
+            inked(rounded(8, 18, 34, 28, 6), 0x8A5530)
+            inked(poly([(8, 18), (42, 18), (36, 30), (14, 30)]), 0xA86A3A, 1.8)
+            fill(circle(25, 28, 2.2), 0xFFC93C)
+            inked(poly([(44, 20), (50, 27), (50, 41), (44, 48), (38, 41), (38, 27)]), 0x3FD070, 1.8)
+            fill(poly([(44, 23), (47, 28), (44, 31), (41, 28)]), 0xB8FFC8)
+        case "fairyBottle":
+            inked(rounded(22, 4, 12, 7, 2), 0xA86A32, 1.6)
+            var bottle = Path(); bottle.move(to: p(24, 11)); bottle.addLine(to: p(24, 18))
+            bottle.addQuadCurve(to: p(28, 52), control: p(4, 40)); bottle.addQuadCurve(to: p(32, 18), control: p(52, 40))
+            bottle.addLine(to: p(32, 11)); bottle.closeSubpath()
+            fill(bottle, 0xBFEFFF, 0.5)
+            fill(circle(28, 34, 9), 0xFFB8E8, 0.45)
+            fill(circle(28, 34, 4.5), 0xFFF0FA)
+            for (dx, dy) in [(-6.0, -4.0), (6, -4)] { fill(Path(ellipseIn: r(28 + dx - 3, 30 + dy - 2, 6, 7)), 0xFFFFFF, 0.8) }
+            context.stroke(bottle, with: .color(ink), lineWidth: 2 * s)
+            shine(18, 26, 3, 7)
+        case "pegasusBoots":
+            for (i, off) in [0.0, 7].enumerated() {
+                inked(poly([(14, 16 + off), (2, 8 + off), (4, 20 + off)]), i == 0 ? 0xFFFFFF : 0xE8F0FF, 1.4)
+            }
+            inked(poly([(14, 12), (28, 12), (30, 30), (46, 34), (49, 44), (14, 44)]), 0xB06A3A)
+            inked(rounded(12, 41, 39, 6, 3), 0x6A3A1A, 1.8)
+            line(open([(16, 20), (28, 20)]), 0xFFD23C, 2.4)
+            shine(18, 26, 4, 3)
+        // Standalone nods
+        case "estusFlask":
+            fill(circle(28, 34, 18), 0xFFB040, 0.25)
+            inked(rounded(23, 4, 10, 7, 2), 0x6A4A2A, 1.6)
+            var flask = Path(); flask.move(to: p(24, 11)); flask.addLine(to: p(24, 20))
+            flask.addQuadCurve(to: p(28, 50), control: p(8, 44)); flask.addQuadCurve(to: p(32, 20), control: p(48, 44))
+            flask.addLine(to: p(32, 11)); flask.closeSubpath()
+            fill(flask, 0x6AA0A0)
+            fill(Path(ellipseIn: r(16, 28, 24, 21)), 0xFF9A2A)
+            fill(Path(ellipseIn: r(21, 32, 10, 9)), 0xFFE08A)
+            context.stroke(flask, with: .color(ink), lineWidth: 2 * s)
+            shine(19, 30, 3, 6)
+        case "companionCube":
+            inked(rounded(8, 8, 40, 40, 6), 0xC8CCD4)
+            for (x, y) in [(8.0, 8.0), (36, 8), (8, 36), (36, 36)] { inked(rounded(x, y, 12, 12, 3), 0x8A8E98, 1.4) }
+            inked(circle(28, 28, 10), 0xE8EAF0, 1.6)
+            var heart = Path(); heart.move(to: p(28, 34))
+            heart.addCurve(to: p(28, 24), control1: p(19, 28), control2: p(23, 20))
+            heart.addCurve(to: p(28, 34), control1: p(33, 20), control2: p(37, 28))
+            fill(heart, 0xFF5AA8)
+        case "goblinSack":
+            inked(Path(ellipseIn: r(8, 16, 40, 36)), 0x9A7040)
+            inked(poly([(20, 18), (28, 6), (36, 18)]), 0x8A6030, 1.8)
+            line(open([(19, 18), (37, 18)]), 0x4A2A14, 3)
+            for (x, y) in [(18.0, 38.0), (30, 44), (38, 34)] { inked(circle(x, y, 4.5), 0xFFC93C, 1.4) }
+            inked(poly([(26, 28), (30, 24), (34, 28), (30, 34)]), 0xB06CFF, 1.4)
+            sparkle(46, 12, 4)
+        case "mushroomCap":
+            fill(circle(28, 26, 22), 0x9FE8FF, 0.22)
+            inked(rounded(22, 32, 12, 16, 4), 0xF2EEE8)
+            var cap = Path(); cap.move(to: p(6, 34)); cap.addQuadCurve(to: p(50, 34), control: p(28, -2)); cap.closeSubpath()
+            inked(cap, 0x4A5AA8)
+            for (x, y) in [(18.0, 24.0), (30, 16), (38, 27)] { fill(circle(x, y, 3), 0x9FE8FF) }
+            fill(circle(24, 41, 1.6), 0x1A120E); fill(circle(32, 41, 1.6), 0x1A120E)
+        // Heart relics
+        case "heartstoneBuckle":
+            fill(circle(28, 28, 26), 0xFF3A5A, 0.2)
+            inked(rounded(2, 20, 52, 16, 5), 0x6A2A30)
+            inked(rounded(14, 10, 28, 36, 8), 0xFFC93C)
+            var heart = Path(); heart.move(to: p(28, 40))
+            heart.addCurve(to: p(28, 20), control1: p(14, 30), control2: p(20, 14))
+            heart.addCurve(to: p(28, 40), control1: p(36, 14), control2: p(42, 30))
+            inked(heart, 0xFF3A5A, 1.6)
+            shine(22, 22, 4, 3)
+            sparkle(48, 8, 4)
+        case "prismHeart":
+            fill(circle(28, 28, 26), 0x8FE0FF, 0.22)
+            inked(poly([(28, 4), (48, 22), (28, 52), (8, 22)]), 0x7AD8FF, 2.2)
+            fill(poly([(28, 4), (48, 22), (28, 22)]), 0xC8F4FF)
+            fill(poly([(8, 22), (28, 22), (28, 52)]), 0x4FA8E0)
+            fill(poly([(18, 22), (28, 12), (38, 22), (28, 34)]), 0xFFFFFF, 0.6)
+            context.stroke(poly([(28, 4), (48, 22), (28, 52), (8, 22)]), with: .color(ink), lineWidth: 2.2 * s)
+            sparkle(46, 42, 4); sparkle(10, 8, 3)
+        case "magmaTreads":
+            fill(circle(28, 30, 26), 0xFF7A2D, 0.22)
+            for x in [16.0, 28, 40] {
+                var flame = Path(); flame.move(to: p(x, 4)); flame.addQuadCurve(to: p(x, 18), control: p(x + 8, 12))
+                flame.addQuadCurve(to: p(x, 4), control: p(x - 8, 12)); inked(flame, 0xFFC24A, 1.4)
+            }
+            inked(poly([(12, 30), (14, 16), (30, 16), (32, 28), (48, 32), (50, 44), (10, 44)]), 0x3A2A2A)
+            inked(rounded(8, 41, 44, 7, 3), 0xFF5A1A, 1.8)
+            for x in [16.0, 24, 40] { line(open([(x, 34), (x + 3, 38)]), 0xFF9A3A, 2) }
+            shine(18, 19, 5, 3)
         default:
             break
         }
@@ -243,10 +392,15 @@ private struct ItemPainter {
 #if DEBUG
 /// Debug gallery of every item icon. Launch with `-debugScreen itemart`.
 struct ItemArtGalleryView: View {
+    /// `-debugScreen itemart2` shows the second half, for screenshots.
+    var items: [ItemDef] {
+        UserDefaults.standard.string(forKey: "debugScreen") == "itemart2" ? Array(ItemDef.all.suffix(20)) : ItemDef.all
+    }
+
     var body: some View {
         ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
-                ForEach(ItemDef.all) { def in
+                ForEach(items) { def in
                     VStack(spacing: 4) {
                         ItemIcon(def: def, size: 76)
                         Text(def.name).font(Theme.body(10, .heavy)).foregroundStyle(Theme.textMuted)

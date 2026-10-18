@@ -26,13 +26,13 @@ func saveAt(area: Int, heartHP: Double, hearts: Int, deepest: Int, weakBlocks: B
 }
 @main struct Main {
     static func main() {
-        check(ZoneID.quarry.maxArea == 100 && ZoneID.caverns.maxArea == 30, "Pebble Quarry goes to 100; others stay at 30")
+        check(ZoneID.allCases.allSatisfy { $0.maxArea == 100 }, "every zone goes to area 100")
         check(mats(8).contains(.copperOre) && mats(13).contains(.coal), "Copper Ore from area 6, Coal from area 11")
         check(mats(28).contains(.silver) && mats(45).contains(.diamond) && mats(65).contains(.mithril) && mats(95).contains(.adamantite), "Silver, Diamond, Mithril, Adamantite appear at depth")
         for a in [1, 7, 12, 18, 23, 27, 35, 45, 55, 65, 75, 85, 95] {
             if AreaGenerator.blocks(zone: .quarry, area: a, seed: 1, treasureChance: 0).count != 30 { check(false, "area \(a) has 30 blocks") }
         }
-        check(abs(Config.hp(.granite, area: 31, zone: .quarry) / Config.hp(.granite, area: 30, zone: .quarry) - 1.04) < 0.001, "past area 30 HP grows 4% per area")
+        check(abs(Config.hp(.granite, area: 31, zone: .quarry) / Config.hp(.granite, area: 30, zone: .quarry) - ZoneID.quarry.lateHPGrowth) < 0.001, "past area 30 HP grows at the late rate (\(ZoneID.quarry.lateHPGrowth))")
         let heartArea = AreaGenerator.blocks(zone: .quarry, area: 100, seed: 5, treasureChance: 1)
         check(heartArea[12].material == .heart && heartArea.filter { $0.material == .heartPart }.count == 8 && !heartArea.contains { $0.isTreasure }, "area 100: Heart covers the centre 3×3, no treasure")
         check(Conquest.isHeartArea(125) && !Conquest.isHeartArea(110) && Conquest.heartRank(150) == 2, "endless Hearts every 25 areas")

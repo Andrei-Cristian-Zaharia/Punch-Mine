@@ -17,6 +17,7 @@ enum Config {
 
     static let clearBonusShare = 0.25
     static let treasureChance = 0.15
+    static let treasureFromArea = 3
     static let treasureHPMultiplier = 3.0
     static let treasureRewardMultiplier = 10.0
     static let treasureCollapseSeconds = 10.0
@@ -49,7 +50,7 @@ enum Config {
     static let minerPunchSharePerTraining = 0.03
     static let minerArmorShare = 0.5
     static let minerHitInterval = 1.0
-    static let minerHireCosts: [Double] = [120, 1_200, 8_000, 40_000, 200_000]
+    static let minerHireCosts: [Double] = [350, 1_500, 8_000, 40_000, 200_000]
     static let drillerHireCosts: [Double] = [2_000, 15_000, 90_000]
     static let blasterHireCosts: [Double] = [25_000, 250_000]
     static let blasterAverageTargets = 6.0
@@ -129,29 +130,36 @@ enum Ore: String, Codable, CaseIterable {
     case basalt, obsidian, magmaCore, emberOre, heartstone, vent, fireOpal
     // Zone 1, deeper tiers
     case copperOre, coal, silver, diamond, mithril, adamantite
+    // Zones 2 and 3, deeper tiers
+    case sapphire, starstone, brimstone, dragonglass
+    // Zone 4
+    case sand, coral, ruinStone, runestone, abyssite, leviathanBone, pearlClam
     /// Area-100 boss and the cells it covers.
     case heart, heartPart
 
-    var isTreasure: Bool { self == .treasure || self == .geode || self == .fireOpal }
+    var isTreasure: Bool { self == .treasure || self == .geode || self == .fireOpal || self == .pearlClam }
     /// Breaking Coal adds Fever charge.
-    var feverFuel: Int { self == .coal ? 5 : 0 }
+    var feverFuel: Int { self == .coal || self == .brimstone ? 5 : 0 }
     /// Crystals chain-break touching crystals of the same type.
-    var isCrystal: Bool { self == .quartz || self == .amethyst }
+    var isCrystal: Bool { self == .quartz || self == .amethyst || self == .sapphire }
 
     var baseHP: Double {
         switch self {
-        case .dirt, .limestone, .basalt: 5
-        case .stone, .quartz, .obsidian: 15
-        case .iron, .amethyst, .magmaCore, .vent: 50
-        case .gold, .voidstone, .emberOre: 140
-        case .granite, .heartstone: 400
-        case .treasure, .geode, .fireOpal, .heart, .heartPart: 0
+        case .dirt, .limestone, .basalt, .sand: 5
+        case .stone, .quartz, .obsidian, .coral: 15
+        case .iron, .amethyst, .magmaCore, .vent, .ruinStone: 50
+        case .gold, .voidstone, .emberOre, .runestone: 140
+        case .granite, .heartstone, .abyssite: 400
+        case .leviathanBone: 2_000
+        case .treasure, .geode, .fireOpal, .pearlClam, .heart, .heartPart: 0
         case .copperOre: 30
         case .coal: 60
         case .silver: 260
         case .diamond: 700
         case .mithril: 1_500
         case .adamantite: 3_000
+        case .sapphire, .brimstone: 450
+        case .starstone, .dragonglass: 2_000
         }
     }
 
@@ -159,6 +167,10 @@ enum Ore: String, Codable, CaseIterable {
         switch self {
         case .obsidian: 3
         case .iron, .amethyst, .magmaCore, .vent: 5
+        case .ruinStone: 6
+        case .runestone: 4
+        case .abyssite: 32
+        case .leviathanBone: 115
         case .gold, .voidstone, .emberOre: 12
         case .granite, .heartstone: 30
         case .copperOre: 2
@@ -166,24 +178,29 @@ enum Ore: String, Codable, CaseIterable {
         case .diamond: 45
         case .mithril: 80
         case .adamantite: 130
+        case .sapphire, .brimstone: 25
+        case .starstone, .dragonglass: 110
         default: 0
         }
     }
 
     var baseReward: Double {
         switch self {
-        case .dirt, .limestone, .basalt: 1
-        case .stone, .quartz, .obsidian: 3
-        case .iron, .amethyst, .magmaCore, .vent: 10
-        case .gold, .voidstone, .emberOre: 28
-        case .granite, .heartstone: 80
-        case .treasure, .geode, .fireOpal, .heart, .heartPart: 0
+        case .dirt, .limestone, .basalt, .sand: 1
+        case .stone, .quartz, .obsidian, .coral: 3
+        case .iron, .amethyst, .magmaCore, .vent, .ruinStone: 10
+        case .gold, .voidstone, .emberOre, .runestone: 28
+        case .granite, .heartstone, .abyssite: 80
+        case .leviathanBone: 600
+        case .treasure, .geode, .fireOpal, .pearlClam, .heart, .heartPart: 0
         case .copperOre: 18
         case .coal: 12
         case .silver: 60
         case .diamond: 160
         case .mithril: 380
         case .adamantite: 800
+        case .sapphire, .brimstone: 110
+        case .starstone, .dragonglass: 600
         }
     }
 
@@ -213,8 +230,18 @@ enum Ore: String, Codable, CaseIterable {
         case .diamond: "Diamond"
         case .mithril: "Mithril"
         case .adamantite: "Adamantite"
-        case .heart: "Heart of the Quarry"
-        case .heartPart: "Heart of the Quarry"
+        case .sapphire: "Sapphire"
+        case .starstone: "Starstone"
+        case .brimstone: "Brimstone"
+        case .dragonglass: "Dragonglass"
+        case .sand: "Sand"
+        case .coral: "Coral"
+        case .ruinStone: "Ruin Stone"
+        case .runestone: "Runestone"
+        case .abyssite: "Abyssite"
+        case .leviathanBone: "Leviathan Bone"
+        case .pearlClam: "Giant Clam"
+        case .heart, .heartPart: "Heart"
         }
     }
 }
@@ -346,7 +373,8 @@ enum UpgradeKind: String, Codable, CaseIterable, Identifiable {
         case .feverStamina: return (150 * pow(1.4, Double(level))).rounded()
         case .contracts: return (1_000 * pow(1.6, Double(level))).rounded()
         case .rhythm: return (400 * pow(1.5, Double(level))).rounded()
-        case .deepPockets: return (60 * pow(1.3, Double(level))).rounded()
+        // Cheap early so first runs aren't slowed; steep after level 10 so it isn't maxed by area 30.
+        case .deepPockets: return (60 * pow(1.3, Double(level)) * pow(1.45, Double(max(0, level - 10)))).rounded()
         case .overcharge: return (250 * pow(1.38, Double(level))).rounded()
         case .treasureHunter: return (200 * pow(1.35, Double(level))).rounded()
         case .lockpick: return (500 * pow(1.4, Double(level))).rounded()

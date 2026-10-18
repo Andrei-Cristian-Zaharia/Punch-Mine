@@ -1,6 +1,6 @@
 import Foundation
 
-/// Every ad is a rewarded ad the player starts by tapping a button. No interstitials, no banners.
+/// Rewarded ads the player starts by tapping a button. Interstitials ("break" ads) are separate: see `BreakAdRules`.
 enum AdPlacement: String, Codable, CaseIterable, Identifiable {
     case coinRush, offlineDouble, treasureDouble
 
@@ -33,6 +33,16 @@ enum AdRules {
     static let offlineDoubleMinimumSeconds = 600.0
 }
 
+/// Interstitials only at natural breaks the player chose (a manual prestige, entering another zone), never in the
+/// first minutes of a player's life or of a session, and never close to another ad.
+enum BreakAdRules {
+    /// No break ads until the player has played this long in total.
+    static let minimumPlaySeconds = 15 * 60.0
+    /// Play time between two ads of any kind; also counts from app launch.
+    static let spacingSeconds = 5 * 60.0
+    static let dailyCap = 6
+}
+
 /// Ad views per placement for the current local day.
 struct AdLedger: Codable, Equatable {
     var day = ""
@@ -52,17 +62,26 @@ struct AdLedger: Codable, Equatable {
         }
     }
 
+    private static let breakKey = "break"
+
     func count(_ placement: AdPlacement) -> Int { counts[placement.rawValue, default: 0] }
-    var total: Int { counts.values.reduce(0, +) }
+    /// Rewarded views only; break ads have their own cap.
+    var total: Int { counts.filter { $0.key != Self.breakKey }.values.reduce(0, +) }
+    var breaks: Int { counts[Self.breakKey, default: 0] }
 
     mutating func record(_ placement: AdPlacement) {
         counts[placement.rawValue, default: 0] += 1
     }
+
+    mutating func recordBreak() {
+        counts[Self.breakKey, default: 0] += 1
+    }
 }
 
-/// Shown once when a Heart of the Quarry falls at a new record depth.
+/// Shown once when a zone's Heart falls at a new record depth.
 struct ConquestEvent: Identifiable, Equatable {
     let id = UUID()
+    var zone: ZoneID = .quarry
     let area: Int
     /// True for the first Heart (the Crown), false for a Crown Star.
     let isCrown: Bool

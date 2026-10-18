@@ -19,26 +19,28 @@ func live(_ g: GameModel, _ s: Double) { g.start(); RunLoop.main.run(until: Date
     static func main() {
         UserDefaults.standard.removeObject(forKey: key)
         let g = model()
-        check(ZoneID.allCases.count == 3 && ZoneID.magma.tools.count == 4, "3 zones; Magma has 4 tools")
+        check(ZoneID.allCases.count == 4 && ZoneID.magma.tools.count == 9, "4 zones; Magma has 9 tools")
         check(!g.unlockAreaMet(.magma), "Magma needs Crystal Caverns first")
-        grind(g, to: 30, buy: true); earn(g, 15_000); g.unlockZone(.caverns)
+        grind(g, to: 30, buy: true); earn(g, ZoneID.caverns.unlock!.costs[0].amount); g.unlockZone(.caverns)
         check(g.zone == .caverns, "in Zone 2")
         let lime = g.run.blocks.first { $0.material == .limestone }!
         check(lime.reward == 2, "Zone 2 pays ×2 per block (limestone \(lime.reward))")
-        grind(g, to: 15)
-        check(g.unlockAreaMet(.magma), "Zone 2 area 15 meets the Magma area requirement")
+        let magma = ZoneID.magma.unlock!
+        let shardCost = magma.costs[0].amount, copperCost = magma.costs[1].amount
+        grind(g, to: magma.clearArea)
+        check(g.unlockAreaMet(.magma), "Zone 2 area \(magma.clearArea) meets the Magma area requirement")
         let costs = g.unlockCosts(.magma)
-        check(costs.count == 2 && costs[0].zone == .caverns && costs[0].amount == 60_000 && costs[1].zone == .quarry && costs[1].amount == 40_000, "Magma costs 60,000 Shards + 40,000 Copper")
-        earn(g, 60_000)
+        check(costs.count == 2 && costs[0].zone == .caverns && costs[0].amount == shardCost && costs[1].zone == .quarry && costs[1].amount == copperCost, "Magma costs Shards + Copper")
+        earn(g, shardCost)
         let copper = g.run(for: .quarry)!.coins
-        check(g.canUnlock(.magma) == (copper >= 40_000), "both currencies are required (Copper held \(copper))")
-        if copper < 40_000 {
-            g.switchZone(to: .quarry); earn(g, 40_000); g.switchZone(to: .caverns)
+        check(g.canUnlock(.magma) == (copper >= copperCost), "both currencies are required (Copper held \(copper))")
+        if copper < copperCost {
+            g.switchZone(to: .quarry); earn(g, copperCost); g.switchZone(to: .caverns)
         }
         let shards = g.run.coins, copper2 = g.run(for: .quarry)!.coins
         check(g.canUnlock(.magma), "can unlock with both")
         g.unlockZone(.magma)
-        check(g.zone == .magma && g.run(for: .caverns)!.coins == shards - 60_000 && g.run(for: .quarry)!.coins == copper2 - 40_000, "unlock pays from both wallets")
+        check(g.zone == .magma && g.run(for: .caverns)!.coins == shards - shardCost && g.run(for: .quarry)!.coins == copper2 - copperCost, "unlock pays from both wallets")
         let basalt = g.run.blocks.first { $0.material == .basalt }!
         check(basalt.maxHP == 25 && basalt.reward == 4, "basalt: 5 × 5 HP, pays 4 Embers")
         check(g.run.blocks.contains { $0.material == .vent }, "area 1 has a vent")

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MineView: View {
     @EnvironmentObject private var game: GameModel
+    @EnvironmentObject private var store: StoreService
     @EnvironmentObject private var ads: AdCoordinator
     @State private var showSettings = false
     @State private var showPerks = false
@@ -12,17 +13,24 @@ struct MineView: View {
     @State private var showOreGallery = false
     @State private var showItems = false
     @State private var showItemArt = false
+    @State private var showDaily = false
+    @State private var showStore = false
+    /// Day the daily reward last opened on its own, so it pops up at most once a day.
+    @AppStorage("dailyPromptDay") private var dailyPromptDay = ""
+    @Environment(\.scenePhase) private var scenePhase
     /// Remembers whether the player prefers the drawer minimized or collapsed.
     @AppStorage("drawerMinimized") private var prefersMinimized = false
 
     var body: some View {
         VStack(spacing: 0) {
-            TopBar(showSettings: $showSettings, showPerks: $showPerks)
-            ZoneStrip(showZones: $showZones, showItems: $showItems)
-            MineGrid()
+            TopBar(showSettings: $showSettings, showPerks: $showPerks, showStore: $showStore)
+            ZoneStrip(showZones: $showZones, showItems: $showItems, showDaily: $showDaily)
+            ShakeHost { MineGrid() }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .frame(maxHeight: .infinity)
+                // Floats over the grid so a tip never changes the layout.
+                .overlay(alignment: .bottom) { TipCard().padding(.horizontal, 12).padding(.bottom, 6) }
             StatusRow(showPrestige: $showPrestige)
                 .frame(height: 36)
                 .padding(.horizontal, 16)
@@ -50,6 +58,8 @@ struct MineView: View {
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showZones) { ZonesView() }
         .sheet(isPresented: $showItems) { ItemsView() }
+        .sheet(isPresented: $showDaily) { DailyView() }
+        .sheet(isPresented: $showStore) { StoreView() }
         .sheet(isPresented: $showPlaytest) { NavigationStack { PlaytestView() } }
         .sheet(item: $game.zoneIntro) { zone in ZoneIntroView(zone: zone) }
         .sheet(item: $game.conquest) { event in ConquestView(event: event) }
@@ -67,13 +77,20 @@ struct MineView: View {
             Haptics.punch(game.settings.vibration)
         }
         .onChange(of: game.zone) { _ in if drawer == .expanded { setDrawer(.collapsed) } }
+        .onChange(of: game.offlineReport == nil) { _ in offerDaily() }
+        .onChange(of: game.breakAdRequest) { _ in ads.showBreak(game: game) }
+        .onChange(of: scenePhase) { phase in if phase == .active { offerDaily() } }
         .onAppear {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                offerDaily()
+            }
             drawer = prefersMinimized ? .minimized : .collapsed
             #if DEBUG
             // Screenshot helpers: launch with `-debugScreen perks`, `prestige`, `zones`, `intro`, `playtest`,
-            // `drawer` or `minimized`.
+            // `drawer`, `minimized` or `autopunch`.
             switch UserDefaults.standard.string(forKey: "debugScreen") {
-            case "perks": showPerks = true
+            case "perks", "ascension": showPerks = true
             case "prestige": showPrestige = true
             case "zones": showZones = true
             case "intro": game.zoneIntro = game.zone
@@ -82,17 +99,42 @@ struct MineView: View {
             case "minimized": drawer = .minimized
             case "ores": showOreGallery = true
             case "armed": game.useGadget(.dynamite)
-            case "items": showItems = true
-            case "itemart": showItemArt = true
+            case "items", "itemdetail": showItems = true
+            case "daily": showDaily = true
+            case "store": showStore = true
+            case "storebuy":
+                showStore = true
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    store.buy(.starterPack)
+                }
+            case "stats", "settings": showSettings = true
+            case "itemart", "itemart2": showItemArt = true
             case "reveal":
                 showItems = true
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))
                     game.openChest(.golden)
                 }
+            case "autopunch":
+                // Punches on its own so effects can be checked without touch input.
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    for n in 0..<400 {
+                        let open = game.run.blocks.filter { !$0.isBroken }.map(\.id)
+                        if let target = open.min(by: { game.run.blocks[$0].hp < game.run.blocks[$1].hp }) { game.punch(target) }
+                        if n == 40 { game.useGadget(.dynamite); game.tap(12) }
+                        try? await Task.sleep(for: .milliseconds(90))
+                    }
+                }
             case "conquest":
-                game.conquest = ConquestEvent(area: 100, isCrown: true, perkCoins: Conquest.crownPerkCoins,
-                                              coinMultiplier: Conquest.coinMultiplier(hearts: 1))
+                game.conquest = ConquestEvent(zone: game.zone, area: 100, isCrown: true, perkCoins: Conquest.crownPerkCoins,
+                                              coinMultiplier: Conquest.coinMultiplier(crowns: 1, hearts: 1))
+            case "break":
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    ads.debugShowBreak(game: game)
+                }
             case "ad":
                 Task {
                     try? await Task.sleep(for: .seconds(1))
@@ -102,6 +144,16 @@ struct MineView: View {
             }
             #endif
         }
+    }
+
+    /// Opens the daily reward once a day, when nothing else is on screen.
+    private func offerDaily() {
+        let today = Daily.dayKey(Date())
+        guard game.dailyAvailable(), dailyPromptDay != today, game.offlineReport == nil, game.zoneIntro == nil,
+              game.conquest == nil, !showSettings, !showZones, !showItems, !showStore, !showPerks, !showPrestige, !showPlaytest,
+              UserDefaults.standard.string(forKey: "debugScreen") == nil else { return }
+        dailyPromptDay = today
+        showDaily = true
     }
 
     private func setDrawer(_ state: DrawerState) {
@@ -119,6 +171,7 @@ private struct TopBar: View {
     @EnvironmentObject private var game: GameModel
     @Binding var showSettings: Bool
     @Binding var showPerks: Bool
+    @Binding var showStore: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -129,15 +182,16 @@ private struct TopBar: View {
                     .contentTransition(.numericText())
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
-                Text(game.zone.currencyName.uppercased())
+                Text(game.zone.currencyShort.uppercased())
                     .font(Theme.body(11, .heavy))
                     .tracking(1)
                     .foregroundStyle(Theme.textMuted)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .fixedSize()
             }
+            .layoutPriority(1)
             .accessibilityElement(children: .combine)
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
             if game.totalPrestiges > 0 || game.perkCoins > 0 || game.canPrestige {
                 Button {
                     showPerks = true
@@ -160,6 +214,18 @@ private struct TopBar: View {
                 CoinRushButton()
             }
             Button {
+                showStore = true
+            } label: {
+                Image(systemName: "cart.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .frame(width: 44, height: 44)
+                    .background(Color(hex: 0x23301F), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color(hex: 0x4C7A3A), lineWidth: 2))
+                    .foregroundStyle(Color(hex: 0x9FE08F))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Shop")
+            Button {
                 showSettings = true
             } label: {
                 Image(systemName: "gearshape.fill")
@@ -180,6 +246,7 @@ private struct ZoneStrip: View {
     @EnvironmentObject private var game: GameModel
     @Binding var showZones: Bool
     @Binding var showItems: Bool
+    @Binding var showDaily: Bool
 
     var body: some View {
         VStack(spacing: 8) {
@@ -188,7 +255,7 @@ private struct ZoneStrip: View {
                     showZones = true
                 } label: {
                     HStack(spacing: 6) {
-                        Text(game.zone.name).lineLimit(1)
+                        Text(game.zone.name).lineLimit(1).minimumScaleFactor(0.75)
                         Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
                     }
                     .font(Theme.body(14, .heavy))
@@ -208,7 +275,7 @@ private struct ZoneStrip: View {
                     Button {
                         showItems = true
                     } label: {
-                        Image(systemName: "backpack.fill")
+                        Image(systemName: Symbols.backpack)
                             .font(.system(size: 16, weight: .bold))
                             .frame(width: 40, height: 36)
                             .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
@@ -228,6 +295,24 @@ private struct ZoneStrip: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Items, \(game.chestCount) chests to open")
                 }
+                if game.dailyUnlocked {
+                    let ready = game.dailyAvailable()
+                    Button {
+                        showDaily = true
+                    } label: {
+                        Image(systemName: "gift.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .frame(width: 40, height: 36)
+                            .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line, lineWidth: 2))
+                            .foregroundStyle(ready ? Theme.gold : Theme.textFaint)
+                            .overlay(alignment: .topTrailing) {
+                                if ready { Circle().fill(Theme.fever).frame(width: 10, height: 10).offset(x: 3, y: -3) }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(ready ? "Daily reward ready" : "Daily reward, claimed today")
+                }
                 Spacer()
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     if game.isEndless {
@@ -238,6 +323,8 @@ private struct ZoneStrip: View {
                         .font(Theme.display(15)).foregroundStyle(Theme.textFaint)
                 }
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .layoutPriority(1)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(game.isEndless ? "Area \(game.run.area), Endless Depths"
                                                    : "Area \(game.run.area) of \(game.zone.maxArea)")
@@ -283,7 +370,7 @@ private struct MineGrid: View {
                 }
 
                 if let heart = game.heartBlock, !heart.isBroken {
-                    HeartView(block: heart, rank: Conquest.heartRank(game.run.area),
+                    HeartView(block: heart, zone: game.zone, rank: Conquest.heartRank(game.run.area),
                               pulse: game.hitPulses[Conquest.heartIndex, default: 0],
                               reducedMotion: game.settings.reducedMotion)
                         .frame(width: side * 3 + gap * 2, height: side * 3 + gap * 2)
@@ -310,6 +397,14 @@ private struct MineGrid: View {
                         .offset(y: side - 10)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
+                }
+
+                DebrisLayer(side: side, gap: gap)
+                    .frame(width: gridW, height: gridH)
+
+                if game.zone == .ruins {
+                    TideOverlay(charge: game.tideCharge, remaining: game.tideRemaining, reducedMotion: game.settings.reducedMotion)
+                        .frame(width: gridW, height: gridH)
                 }
 
                 ForEach(game.floaters) { floater in
@@ -406,7 +501,7 @@ private struct MineGrid: View {
 
     private func accessibilityLabel(_ block: Block) -> String {
         if block.material == .heart {
-            return "Heart of the Quarry, \(NumberText.percent(block.hpFraction)) health"
+            return "\(game.zone.heartName), \(NumberText.percent(block.hpFraction)) health"
         }
         if block.isBroken { return "Empty" }
         return "\(block.material.displayName), \(NumberText.percent(block.hpFraction)) health"
@@ -458,6 +553,61 @@ private struct AreaBannerView: View {
                 if visible == banner { withAnimation(.easeOut(duration: 0.3)) { visible = nil } }
             }
         }
+    }
+}
+
+/// Sunken Ruins: the waterline creeps up the grid as high tide nears, then floods it. A pill shows the countdown.
+private struct TideOverlay: View {
+    let charge: Double
+    let remaining: Double
+    let reducedMotion: Bool
+
+    private var high: Bool { remaining > 0 }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            GeometryReader { geo in
+                let level = high ? 1 : 0.12 * charge
+                TimelineView(.animation(paused: reducedMotion)) { timeline in
+                    Canvas { context, size in
+                        let t = reducedMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+                        let top = size.height * (1 - level)
+                        var water = Path()
+                        water.move(to: CGPoint(x: 0, y: size.height))
+                        for x in stride(from: 0.0, through: size.width, by: 6) {
+                            let y = top + 4 * sin(x / 28 + t * 2) + 2 * sin(x / 11 - t * 3)
+                            water.addLine(to: CGPoint(x: x, y: y))
+                        }
+                        water.addLine(to: CGPoint(x: size.width, y: size.height))
+                        water.closeSubpath()
+                        context.fill(water, with: .color(Theme.tide.opacity(high ? 0.22 : 0.3)))
+                        var crest = Path()
+                        for x in stride(from: 0.0, through: size.width, by: 6) {
+                            let y = top + 4 * sin(x / 28 + t * 2) + 2 * sin(x / 11 - t * 3)
+                            if x == 0 { crest.move(to: CGPoint(x: x, y: y)) } else { crest.addLine(to: CGPoint(x: x, y: y)) }
+                        }
+                        context.stroke(crest, with: .color(.white.opacity(high ? 0.35 : 0.5)), lineWidth: 2)
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+            .animation(reducedMotion ? nil : .easeInOut(duration: 1.2), value: high)
+
+            HStack(spacing: 5) {
+                Image(systemName: "water.waves")
+                Text(high ? "HIGH TIDE ×\(NumberText.decimal(Tide.rewardFactor)) · \(Int(remaining.rounded(.up))) s"
+                          : "Tide in \(Int((Tide.interval * (1 - charge)).rounded(.up))) s")
+            }
+            .font(Theme.body(11, .black))
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background(high ? Theme.tide : Color.black.opacity(0.6), in: Capsule())
+            .foregroundStyle(high ? Color(hex: 0x061E30) : Theme.tide)
+            .offset(y: -12)
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(high ? "High tide, \(Int(remaining.rounded(.up))) seconds left. Blocks pay more, hits are weaker."
+                                 : "High tide in \(Int((Tide.interval * (1 - charge)).rounded(.up))) seconds")
     }
 }
 

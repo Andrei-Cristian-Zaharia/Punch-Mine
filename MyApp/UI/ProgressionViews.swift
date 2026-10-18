@@ -105,6 +105,7 @@ struct PrestigeView: View {
 
     private func confirm() {
         game.prestige()
+        game.requestBreakAd("prestige")
         dismiss()
     }
 
@@ -128,7 +129,7 @@ struct PrestigeView: View {
 struct PerksView: View {
     @EnvironmentObject private var game: GameModel
     @Environment(\.dismiss) private var dismiss
-    @State private var branch = PerkBranch.power
+    @State private var tab = PerksTab.branch(.power)
 
     var body: some View {
         NavigationStack {
@@ -145,14 +146,20 @@ struct PerksView: View {
                             .background(Theme.perkPanel, in: RoundedRectangle(cornerRadius: 12))
                     }
 
-                    Picker("Branch", selection: $branch) {
-                        ForEach(PerkBranch.allCases) { Text($0.rawValue).tag($0) }
+                    Picker("Branch", selection: $tab) {
+                        ForEach(PerkBranch.allCases) { Text($0.rawValue).tag(PerksTab.branch($0)) }
+                        Text("Ascension").tag(PerksTab.ascension)
                     }
                     .pickerStyle(.segmented)
 
-                    ForEach(Perk.allCases.filter { $0.branch == branch }) { perk in
-                        PerkRow(perk: perk)
-                            .padding(.leading, CGFloat(perk.depth) * 24)
+                    switch tab {
+                    case .branch(let branch):
+                        ForEach(Perk.allCases.filter { $0.branch == branch }) { perk in
+                            PerkRow(perk: perk)
+                                .padding(.leading, CGFloat(perk.depth) * 24)
+                        }
+                    case .ascension:
+                        AscensionSection()
                     }
 
                     Text("Perk Coins are shared by every zone and buy perks only. Bonuses to the same stat add together.")
@@ -164,6 +171,9 @@ struct PerksView: View {
             }
             .background(Theme.perkGround.ignoresSafeArea())
             .navigationTitle("Perks")
+            #if DEBUG
+            .onAppear { if UserDefaults.standard.string(forKey: "debugScreen") == "ascension" { tab = .ascension } }
+            #endif
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 6) {
@@ -178,6 +188,95 @@ struct PerksView: View {
             }
         }
         .foregroundStyle(Theme.text)
+    }
+}
+
+enum PerksTab: Hashable {
+    case branch(PerkBranch), ascension
+}
+
+/// Star perks (repeatable) and Ascension perks (one-time), unlocked by the first Crown.
+private struct AscensionSection: View {
+    @EnvironmentObject private var game: GameModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(game.ascensionUnlocked
+                 ? "Spend Perk Coins forever: Star perks have no level cap and stack on top of everything else."
+                 : "Defeat any zone's Heart to unlock Ascension: endless Star perks and powerful one-time upgrades.")
+                .font(Theme.body(13))
+                .foregroundStyle(Color(hex: 0xD7C9E8))
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.perkPanel, in: RoundedRectangle(cornerRadius: 12))
+            Text("STAR PERKS").font(Theme.body(12, .black)).tracking(1.2).foregroundStyle(Color(hex: 0x9C90B3))
+            ForEach(StarPerk.allCases) { star in
+                let level = game.starLevel(star)
+                AscensionRow(symbol: star.symbol, name: star.name,
+                             levelText: star.maxLevel.map { "\(level) / \($0)" } ?? "Lv \(level)",
+                             detail: level == 0 ? star.summary : "Now: " + star.effect(level: level),
+                             state: game.starState(star), cost: star.cost(level: level)) { game.buyStar(star) }
+            }
+            Text("ASCENSION PERKS").font(Theme.body(12, .black)).tracking(1.2).foregroundStyle(Color(hex: 0x9C90B3))
+                .padding(.top, 6)
+            ForEach(AscensionPerk.allCases) { perk in
+                AscensionRow(symbol: perk.symbol, name: perk.name, levelText: game.owns(perk) ? "OWNED" : "ONCE",
+                             detail: perk.summary, state: game.ascensionState(perk), cost: perk.cost) { game.buyAscension(perk) }
+                if perk == .autoPrestige && game.owns(.autoPrestige) {
+                    Toggle("Auto-prestige on", isOn: $game.settings.autoPrestige)
+                        .font(Theme.body(14, .heavy))
+                        .tint(Theme.perk)
+                        .padding(.horizontal, 12)
+                }
+            }
+        }
+    }
+}
+
+private struct AscensionRow: View {
+    let symbol: String
+    let name: String
+    let levelText: String
+    let detail: String
+    let state: PerkState
+    let cost: Int
+    let buy: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: state == .locked ? "lock.fill" : symbol)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(state == .locked ? Color(hex: 0x8A7FA0) : Theme.gold)
+                .frame(width: 28)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(name).font(Theme.body(15, .black))
+                    Text(levelText).font(Theme.body(11, .heavy)).foregroundStyle(Color(hex: 0x9C90B3))
+                }
+                Text(detail).font(Theme.body(12)).foregroundStyle(Color(hex: 0xC9BEDB))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            if state == .maxed {
+                Text("MAX").font(Theme.body(14, .black)).foregroundStyle(Color(hex: 0x9C90B3)).frame(minWidth: 70)
+            } else if state != .locked {
+                Button(action: buy) {
+                    Text("\(NumberText.format(Double(cost))) PC")
+                        .font(Theme.body(14, .black))
+                        .frame(minWidth: 70, minHeight: 44)
+                        .background(state == .affordable ? Theme.perk : Color(hex: 0x3A3148), in: RoundedRectangle(cornerRadius: 10))
+                        .foregroundStyle(state == .affordable ? .white : Color(hex: 0x8A7FA0))
+                }
+                .buttonStyle(.plain)
+                .disabled(state != .affordable)
+                .accessibilityLabel("Buy \(name) for \(cost) Perk Coins")
+            }
+        }
+        .padding(12)
+        .background(state == .locked ? Color(hex: 0x1A1524) : Color(hex: 0x221B2E), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.gold.opacity(state == .locked ? 0.3 : 0.7), lineWidth: 2))
+        .opacity(state == .locked ? 0.75 : 1)
     }
 }
 

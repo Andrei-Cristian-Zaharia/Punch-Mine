@@ -21,6 +21,7 @@ enum Theme {
     static let gold = Color(hex: 0xF5C64F)
     static let crystal = Color(hex: 0x3FC1C9)
     static let ember = Color(hex: 0xE2553A)
+    static let tide = Color(hex: 0x3FA6E8)
 
     static func display(_ size: CGFloat) -> Font { .system(size: size, weight: .black, design: .rounded) }
     static func body(_ size: CGFloat, _ weight: Font.Weight = .bold) -> Font { .system(size: size, weight: weight, design: .rounded) }
@@ -63,6 +64,17 @@ extension Ore {
         case .diamond: Color(hex: 0x3A4652)
         case .mithril: Color(hex: 0x2E3A4E)
         case .adamantite: Color(hex: 0x2A2236)
+        case .sapphire: Color(hex: 0x203668)
+        case .starstone: Color(hex: 0x13162C)
+        case .brimstone: Color(hex: 0x403416)
+        case .dragonglass: Color(hex: 0x10080E)
+        case .sand: Color(hex: 0xC8A86A)
+        case .coral: Color(hex: 0xC85A6A)
+        case .ruinStone: Color(hex: 0x5E7A72)
+        case .runestone: Color(hex: 0x2E4A5A)
+        case .abyssite: Color(hex: 0x1A2A44)
+        case .leviathanBone: Color(hex: 0xBEB49A)
+        case .pearlClam: Color(hex: 0x24425A)
         case .heart, .heartPart: Color(hex: 0x5A0E14)
         }
     }
@@ -93,6 +105,17 @@ extension Ore {
         case .diamond: Color(hex: 0x24303A)
         case .mithril: Color(hex: 0x1A2436)
         case .adamantite: Color(hex: 0x16101E)
+        case .sapphire: Color(hex: 0x14244A)
+        case .starstone: Color(hex: 0x0A0C1A)
+        case .brimstone: Color(hex: 0x2A220E)
+        case .dragonglass: Color(hex: 0x080408)
+        case .sand: Color(hex: 0x9A7E48)
+        case .coral: Color(hex: 0x8E3444)
+        case .ruinStone: Color(hex: 0x3E5650)
+        case .runestone: Color(hex: 0x1C3240)
+        case .abyssite: Color(hex: 0x0E182C)
+        case .leviathanBone: Color(hex: 0x8A8068)
+        case .pearlClam: Theme.gold
         case .heart, .heartPart: Color(hex: 0xFF5A3D)
         }
     }
@@ -105,6 +128,7 @@ extension ZoneID {
         case .quarry: Theme.copper
         case .caverns: Theme.crystal
         case .magma: Theme.ember
+        case .ruins: Theme.tide
         }
     }
     /// Text color on top of `accent`.
@@ -113,6 +137,7 @@ extension ZoneID {
         case .quarry: Color(hex: 0x2A1406)
         case .caverns: Color(hex: 0x072A2C)
         case .magma: Color(hex: 0x2A0A04)
+        case .ruins: Color(hex: 0x061E30)
         }
     }
     var cardFill: Color {
@@ -120,6 +145,7 @@ extension ZoneID {
         case .quarry: Color(hex: 0x2A2019)
         case .caverns: Color(hex: 0x1A2426)
         case .magma: Color(hex: 0x2A1614)
+        case .ruins: Color(hex: 0x14222E)
         }
     }
     var cardEdge: Color {
@@ -127,6 +153,7 @@ extension ZoneID {
         case .quarry: Color(hex: 0x5A4130)
         case .caverns: Color(hex: 0x2F5A5E)
         case .magma: Color(hex: 0x6A2C20)
+        case .ruins: Color(hex: 0x24506A)
         }
     }
     var ground: Color {
@@ -134,6 +161,7 @@ extension ZoneID {
         case .quarry: Theme.ground
         case .caverns: Color(hex: 0x111719)
         case .magma: Color(hex: 0x1A100E)
+        case .ruins: Color(hex: 0x0C141C)
         }
     }
     var panel: Color {
@@ -141,6 +169,7 @@ extension ZoneID {
         case .quarry: Theme.panel
         case .caverns: Color(hex: 0x1A2326)
         case .magma: Color(hex: 0x261614)
+        case .ruins: Color(hex: 0x142028)
         }
     }
     /// Background of the zone's badge in zone select.
@@ -149,6 +178,7 @@ extension ZoneID {
         case .quarry: .stone
         case .caverns: .quartz
         case .magma: .magmaCore
+        case .ruins: .coral
         }
     }
 }
@@ -162,7 +192,25 @@ struct CurrencyIcon: View {
         case .quarry: CoinIcon(size: size)
         case .caverns: ShardIcon(size: size)
         case .magma: EmberIcon(size: size)
+        case .ruins: PearlIcon(size: size)
         }
+    }
+}
+
+/// Pearls: a glossy white pearl in a blue ring, round like copper but clearly not a coin.
+struct PearlIcon: View {
+    var size: CGFloat = 18
+    var body: some View {
+        ZStack {
+            Circle().fill(Theme.tide)
+            Circle().strokeBorder(Color(hex: 0x0E4A70), lineWidth: size * 0.09)
+            Circle()
+                .fill(RadialGradient(colors: [.white, Color(hex: 0xE8F0F4), Color(hex: 0xB8C8D4)],
+                                     center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: size * 0.34))
+                .padding(size * 0.2)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

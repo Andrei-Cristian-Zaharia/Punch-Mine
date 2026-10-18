@@ -1,0 +1,122 @@
+{
+  "identifier": "FE22C1E8",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "3.99",
+      "familyShareable": false,
+      "internalID": "6740000000",
+      "localizations": [
+        {
+          "description": "No more ads between runs. Bonus ads you choose stay available.",
+          "displayName": "Remove Ads",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.removeads",
+      "referenceName": "Remove Ads",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "1.99",
+      "familyShareable": false,
+      "internalID": "6740000001",
+      "localizations": [
+        {
+          "description": "1 Golden Chest, 3 Iron Chests, 500 Scrap and 200 Perk Coins. Once per player.",
+          "displayName": "Starter Pack",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.starterpack",
+      "referenceName": "Starter Pack",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "0.99",
+      "familyShareable": false,
+      "internalID": "6740000002",
+      "localizations": [
+        {
+          "description": "300 Scrap for item upgrades.",
+          "displayName": "Pile of Scrap",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.scrap.small",
+      "referenceName": "Pile of Scrap",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "internalID": "6740000003",
+      "localizations": [
+        {
+          "description": "2,000 Scrap for item upgrades.",
+          "displayName": "Crate of Scrap",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.scrap.medium",
+      "referenceName": "Crate of Scrap",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "9.99",
+      "familyShareable": false,
+      "internalID": "6740000004",
+      "localizations": [
+        {
+          "description": "5,000 Scrap for item upgrades.",
+          "displayName": "Cart of Scrap",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.scrap.large",
+      "referenceName": "Cart of Scrap",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "2.99",
+      "familyShareable": false,
+      "internalID": "6740000005",
+      "localizations": [
+        {
+          "description": "Five Iron Chests.",
+          "displayName": "5 Iron Chests",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.chests.iron5",
+      "referenceName": "5 Iron Chests",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "internalID": "6740000006",
+      "localizations": [
+        {
+          "description": "Three Golden Chests.",
+          "displayName": "3 Golden Chests",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.chests.golden3",
+      "referenceName": "3 Golden Chests",
+      "type": "Consumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}

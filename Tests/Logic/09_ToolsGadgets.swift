@@ -19,7 +19,7 @@ func saveAt(area: Int, tool: Int, coins: Double = 0, weak: Bool = false) {
 }
 @main struct Main {
     static func main() {
-        check(ZoneID.quarry.tools.count == 10 && ZoneID.caverns.tools.count == 5 && ZoneID.magma.tools.count == 4, "10 / 5 / 4 tools")
+        check(ZoneID.quarry.tools.count == 10 && ZoneID.caverns.tools.count == 10 && ZoneID.magma.tools.count == 9, "10 / 10 / 9 tools")
         check(ZoneID.quarry.tools.map(\.unlockArea) == ZoneID.quarry.tools.map(\.unlockArea).sorted(), "Zone 1 tools unlock in order")
         // Pierce
         saveAt(area: 45, tool: 6)

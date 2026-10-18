@@ -22,8 +22,8 @@ func clearWeak(_ g: GameModel) { var n = 0; let a = g.run.area; while g.run.area
 @main struct Main {
     static func main() {
         let all = ItemDef.all
-        check(all.count == 22 && Set(all.map(\.id)).count == 22, "22 unique items")
-        check(ItemSlot.allCases.allSatisfy { s in all.filter { $0.slot == s }.count >= 5 }, "every slot has at least 5 items")
+        check(all.count == 42 && Set(all.map(\.id)).count == 42, "42 unique items (\(all.count))")
+        check(ItemSlot.allCases.allSatisfy { s in all.filter { $0.slot == s }.count >= 6 }, "every slot has at least 6 items")
         check(Rarity.allCases.allSatisfy { r in all.contains { $0.rarity == r } } && Set(all.map(\.effect)).count >= 20, "all 4 rarities, 20+ distinct effects (\(Set(all.map(\.effect)).count))")
         check(ChestTier.allCases.allSatisfy { abs($0.odds.reduce(0, +) - 1) < 1e-9 }, "chest odds add up to 100%")
         check(all.allSatisfy { $0.upgradeCost(level: 2) > $0.upgradeCost(level: 1) }, "upgrade costs rise per level")
@@ -33,10 +33,13 @@ func clearWeak(_ g: GameModel) { var n = 0; let a = g.run.area; while g.run.area
         check(g.chestCount(.wooden) == 1, "first clear of area 5 gives a starter Wooden Chest")
         saveAt(area: 10, weak: true); g = model(); clearWeak(g)
         check(g.chestCount(.iron) == 1, "record area 10 gives an Iron Chest")
-        saveAt(area: 13, weak: true, treasure: true); g = model()
-        let t = g.run.blocks.firstIndex { $0.isTreasure }!
-        g.punch(t)
-        check(g.chestCount > 0, "breaking treasure gives a chest")
+        var dropped = 0
+        for _ in 0..<60 {
+            saveAt(area: 13, weak: true, treasure: true); g = model()
+            g.punch(g.run.blocks.firstIndex { $0.isTreasure }!)
+            dropped += g.chestCount
+        }
+        check(dropped >= 8 && dropped <= 36, "about a third of treasure breaks drop a chest (\(dropped) of 60)")
 
         // Opening: new item auto-equips, duplicates give scrap
         saveAt(area: 3, chests: ["golden": 40])
@@ -89,13 +92,14 @@ func clearWeak(_ g: GameModel) { var n = 0; let a = g.run.area; while g.run.area
         g = model()
         check(abs(g.feverMultiplier - 2.5) < 1e-9 && abs(g.treasureChance - 0.18) < 1e-9, "Overcharge 5: ×2.5 Fever; Treasure Hunter 3: 18%")
         saveAt(area: 13, weak: true, treasure: true, levels: ["lockpick": 10])
-        var extra = 0
-        for _ in 0..<20 {
+        var total = 0
+        for _ in 0..<150 {
             saveAt(area: 13, weak: true, treasure: true, levels: ["lockpick": 10])
             g = model(); g.punch(g.run.blocks.firstIndex { $0.isTreasure }!)
-            extra += g.chestCount - 1
+            total += g.chestCount
         }
-        check(extra >= 4 && extra <= 17, "Lockpick 10: about half of treasures give an extra chest (\(extra) / 20)")
+        // 35% drop, half of those doubled ≈ 0.525 chests per treasure: 79 expected, ±4 standard deviations.
+        check(total >= 41 && total <= 117, "Lockpick 10: half of treasure chests come in pairs (\(total) chests from 150)")
 
         // Items survive prestige and saving
         saveAt(area: 20, items: ["toolBelt": 3], equipped: ["belt": "toolBelt"], scrap: 77)

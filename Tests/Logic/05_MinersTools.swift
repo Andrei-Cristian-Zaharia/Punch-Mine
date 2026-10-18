@@ -19,7 +19,7 @@ func live(_ g: GameModel, seconds: Double) { g.start(); RunLoop.main.run(until: 
     static func main() {
         UserDefaults.standard.removeObject(forKey: key)
         let g = model()
-        check(UpgradeKind.allCases.count == 17 && g.zone.tools.count == 10 && ZoneID.caverns.tools.count == 5, "17 upgrades, 10 + 5 tools")
+        check(UpgradeKind.allCases.count == 17 && g.zone.tools.count == 10 && ZoneID.caverns.tools.count == 10, "17 upgrades, 10 + 10 tools")
         grind(g, to: 7)
         earnUntil(g, g.cost(.focus)); g.buy(.focus)
         check(g.focusMaxStacks == 2, "Focus 1 allows 2 stacks")

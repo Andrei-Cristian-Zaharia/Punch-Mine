@@ -70,7 +70,7 @@ private struct OpenZoneCard: View {
                         }
                     }
                     Text(zone.name).font(Theme.display(22))
-                    Text("Area \(run?.area ?? 1)\(zone == .quarry && game.hasCrown ? "" : " / \(zone.maxArea)") · best \(record.bestArea) · \(minerText(run?.level(.hireMiner) ?? 0))")
+                    Text("Area \(run?.area ?? 1)\(game.hasCrown(zone) ? "" : " / \(zone.maxArea)") · best \(record.bestArea) · \(minerText(run?.level(.hireMiner) ?? 0))")
                         .font(Theme.body(12)).foregroundStyle(Theme.textMuted)
                     HStack(spacing: 5) {
                         CurrencyIcon(zone: zone, size: 13)
@@ -80,7 +80,9 @@ private struct OpenZoneCard: View {
                 }
             }
             Button {
+                let switching = !isActive
                 game.switchZone(to: zone)
+                if switching { game.requestBreakAd("zone_switch") }
                 onEnter()
             } label: {
                 Text(isActive ? "Back to mining" : "Enter")
@@ -208,6 +210,8 @@ struct ZoneIntroView: View {
                 text: "Your perks and Perk Coins carry over. Upgrades, tools and miners start fresh here.")
             row(icon: AnyView(Image(systemName: "sparkles").font(.system(size: 22)).foregroundStyle(zone.accent)),
                 text: zone.twist + ". " + zone.tip)
+            row(icon: AnyView(Image(systemName: "suit.heart.fill").font(.system(size: 20)).foregroundStyle(Theme.ember)),
+                text: "At area \(Conquest.heartArea) the \(zone.heartName) waits. \(zone.heartTwist)")
             row(icon: AnyView(Image(systemName: "arrow.left.arrow.right").font(.system(size: 20)).foregroundStyle(Theme.textMuted)),
                 text: "Switch mines any time from the zone button. Mines you leave keep their progress.")
             Spacer()
@@ -235,7 +239,7 @@ struct ZoneIntroView: View {
     }
 }
 
-/// Celebrates a Heart of the Quarry at a new record depth.
+/// Celebrates a zone's Heart at a new record depth.
 struct ConquestView: View {
     @Environment(\.dismiss) private var dismiss
     let event: ConquestEvent
@@ -248,10 +252,10 @@ struct ConquestView: View {
                 .foregroundStyle(Theme.gold)
                 .shadow(color: Theme.gold.opacity(0.6), radius: 20)
                 .accessibilityHidden(true)
-            Text(event.isCrown ? "Quarry Crown" : "Crown Star")
+            Text(event.isCrown ? event.zone.crownName : "Crown Star")
                 .font(Theme.display(36))
             Text(event.isCrown
-                 ? "You destroyed the Heart of the Quarry at area \(event.area)."
+                 ? "You destroyed the \(event.zone.heartName) at area \(event.area)."
                  : "You destroyed a deeper Heart at area \(event.area).")
                 .font(Theme.body(16))
                 .foregroundStyle(Theme.textMuted)
@@ -263,7 +267,7 @@ struct ConquestView: View {
                 reward(icon: "star.fill", color: Theme.perkLight, text: "+\(event.perkCoins) Perk Coins")
                 if event.isCrown {
                     reward(icon: "infinity", color: Theme.copper,
-                           text: "Endless Depths open: Pebble Quarry goes on past area 100. A stronger Heart waits every 25 areas.")
+                           text: "Endless Depths open: \(event.zone.name) goes on past area 100. A stronger Heart waits every 25 areas.")
                 } else {
                     reward(icon: "arrow.down.to.line", color: Theme.copper,
                            text: "The next Heart waits at area \(event.area + Conquest.endlessHeartEvery).")

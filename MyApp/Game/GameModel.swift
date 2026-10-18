@@ -11,6 +11,20 @@ struct Floater: Identifiable {
     let jitter: Double
 }
 
+/// Moments the UI turns into sound, screen shake and debris. Purely presentational: game state never reads them.
+enum GameEvent {
+    case punch(index: Int, crit: Bool, weak: Bool, titan: Bool)
+    case minerHit(index: Int)
+    case blockBreak(index: Int, ore: Ore, treasure: Bool, lucky: Bool)
+    case chain, zap, boom(index: Int), erupt
+    case areaClear, fever, heartDefeated
+    /// Sunken Ruins: high tide comes in (true) or goes out (false).
+    case tide(rising: Bool)
+    case rune(index: Int)
+    case chest(Rarity)
+    case purchase
+}
+
 /// Where a miner is working, for the badge on the grid.
 struct MinerMark: Equatable, Hashable {
     let index: Int
@@ -48,7 +62,12 @@ final class GameModel: ObservableObject {
     @Published private(set) var hitPulses: [Int: Int] = [:]
     @Published private(set) var punchCount = 0
     @Published private(set) var breakCount = 0
-    @Published private(set) var feverRemaining: Double = 0
+    @Published private(set) var feverRemaining: Double = 0 {
+        didSet { if oldValue <= 0 && feverRemaining > 0 { emit(.fever); noteTipEvent(.fever) } }
+    }
+    /// Set by the UI to receive `GameEvent`s.
+    var onEvent: ((GameEvent) -> Void)?
+    private func emit(_ event: GameEvent) { onEvent?(event) }
     @Published private(set) var banner: AreaBanner?
     @Published private(set) var minerTargets: [MinerMark] = []
     /// Consecutive punches on the same block, for the Focus upgrade.
@@ -61,6 +80,12 @@ final class GameModel: ObservableObject {
     // Rewarded ads
     /// Set by the UI once it knows whether an ad provider can show ads.
     @Published var adsAvailable = false
+    /// Set by the UI once an interstitial provider is ready.
+    @Published var breakAdsAvailable = false
+    /// Goes up by one each time the game asks for an interstitial; the UI shows one.
+    @Published private(set) var breakAdRequest = 0
+    /// Play time (`stats.playSeconds`) at the last ad of any kind, or at launch.
+    private var lastAdPlaySeconds = 0.0
     @Published private(set) var coinRushRemaining: Double = 0
     @Published private(set) var treasureOffer: TreasureOffer?
     @Published private(set) var adLedger = AdLedger()
@@ -81,14 +106,37 @@ final class GameModel: ObservableObject {
     @Published private(set) var chests: [String: Int] = [:]
     @Published private(set) var scrap = 0
     @Published var chestReveal: ChestReveal?
+    /// Bad-luck protection counters (see `ItemRules.epicPity`).
+    @Published private(set) var chestsSinceEpic = 0
+    @Published private(set) var chestsSinceLegendary = 0
+    /// Lifetime totals for the Stats screen.
+    @Published private(set) var stats = LifetimeStats()
+    @Published private(set) var daily = DailyState()
+    @Published var dailyReveal: DailyReward?
+    /// Item id → its bonus stat.
+    @Published private(set) var affixes: [String: Affix] = [:]
+    // Ascension (see Ascension.swift)
+    @Published private(set) var stars: [String: Int] = [:]
+    @Published private(set) var ascended: Set<String> = []
+    // Store (see Store.swift)
+    /// One-time products the player owns.
+    @Published private(set) var ownedProducts: Set<String> = []
+    /// App Store transactions already credited, so none pays out twice.
+    private var processedTransactions: Set<String> = []
     private var effectPunches = 0
     private var rhythmCounter = 0
     private var titanCounter = 0
 
     // Heart of the Quarry
-    @Published private(set) var heartsDefeated = 0
-    @Published private(set) var deepestHeart = 0
     @Published var conquest: ConquestEvent?
+
+    // Sunken Ruins
+    /// 0 → 1 as the next high tide approaches; 0 while the tide is in.
+    @Published private(set) var tideCharge: Double = 0
+    /// Seconds of high tide left; 0 while the tide is out.
+    @Published private(set) var tideRemaining: Double = 0
+    private var tideTimer: Double = 0
+    var highTide: Bool { zone == .ruins && tideRemaining > 0 }
 
     // Magma Depths
     /// 0 → 1 as the next vent eruption approaches.
@@ -100,7 +148,15 @@ final class GameModel: ObservableObject {
     private var regrowCap: [Int: Double] = [:]
 
     private var seeds: [String: UInt64]
-    private var clock: Double = 0
+    private(set) var clock: Double = 0
+
+    // Tips (see Tips.swift)
+    @Published var activeTip: Tip?
+    var seenTips: Set<String> = []
+    var pendingTipEvents: Set<Tip> = []
+    var tipShownAt = 0.0
+    var lastTipEnded = -100.0
+    private var sinceTipCheck = 0.0
     private var areaGeneration = 0
     private var recentPunches: [Double] = []
     private var recentTaps: [Double] = []
@@ -116,6 +172,8 @@ final class GameModel: ObservableObject {
     private var lastActive: Date?
     private var playerDamage: Double = 0
     private var minerDamage: Double = 0
+    /// Share of this area's damage dealt by miners so far.
+    var minerDamageShare: Double { playerDamage + minerDamage > 0 ? minerDamage / (playerDamage + minerDamage) : 0 }
     let analytics: Analytics
 
     private static let saveKey = "punchmine.save.v1"
@@ -136,12 +194,37 @@ final class GameModel: ObservableObject {
             lastActive = save.lastActive
             coinRushRemaining = save.coinRushRemaining
             adLedger = save.adLedger
-            heartsDefeated = save.heartsDefeated
-            deepestHeart = save.deepestHeart
+            // Before Hearts were per zone, the save held Pebble Quarry's Heart record at the top level.
+            if save.heartsDefeated > 0, var quarry = records[ZoneID.quarry.rawValue], quarry.heartsDefeated == 0 {
+                quarry.heartsDefeated = save.heartsDefeated
+                quarry.deepestHeart = save.deepestHeart
+                records[ZoneID.quarry.rawValue] = quarry
+            }
             items = save.items
             equipped = save.equipped
             chests = save.chests
             scrap = save.scrap
+            chestsSinceEpic = save.chestsSinceEpic
+            chestsSinceLegendary = save.chestsSinceLegendary
+            stats = save.stats ?? LifetimeStats(legacyFrom: save)
+            daily = save.daily
+            affixes = save.affixes ?? [:]
+            // Items found before affixes existed get one now.
+            if save.affixes == nil {
+                for id in save.items.keys {
+                    if let def = ItemDef.find(id) { affixes[id] = def.heartZone != nil ? Affixes.relicAffix(def) : Affixes.roll(for: def) }
+                }
+            }
+            stars = save.stars
+            ascended = Set(save.ascended)
+            ownedProducts = Set(save.ownedProducts)
+            processedTransactions = Set(save.processedTransactions)
+            // Saves from before tips existed: a player who is already past the basics doesn't need them.
+            if let tips = save.seenTips {
+                seenTips = Set(tips)
+            } else if (save.records[ZoneID.quarry.rawValue]?.bestArea ?? 1) >= 20 {
+                seenTips = Set(Tip.allCases.map(\.rawValue))
+            }
         } else {
             var record = ZoneRecord()
             record.seenIntro = true
@@ -156,6 +239,9 @@ final class GameModel: ObservableObject {
         if runs[activeZone.rawValue] == nil { runs[activeZone.rawValue] = ZoneRun() }
         if seeds[activeZone.rawValue] == nil { seeds[activeZone.rawValue] = UInt64.random(in: 1...UInt64.max) }
         if run.blocks.isEmpty { run.blocks = newBlocks(area: run.area) }
+        lastAdPlaySeconds = stats.playSeconds
+        // Saves from before Heart relics: hand over the relic of every Heart already defeated.
+        for zone in ZoneID.allCases where hasCrown(zone) { grantRelic(for: zone) }
     }
 
     // MARK: - Active zone access
@@ -209,6 +295,9 @@ final class GameModel: ObservableObject {
         save()
     }
 
+    /// Steps the game without the real-time loop, for headless balance simulations and tests.
+    func advance(by dt: Double) { tick(dt) }
+
     private func tick(_ dt: Double) {
         guard !isPaused else { return }
         clock += dt
@@ -221,6 +310,7 @@ final class GameModel: ObservableObject {
         if let offer = treasureOffer, clock > offer.expires { treasureOffer = nil }
         analytics.addPlayTime(dt)
         run.playSeconds += dt
+        stats.playSeconds += dt
         run.areaSeconds += dt
 
         // Fever meter and timer
@@ -244,7 +334,10 @@ final class GameModel: ObservableObject {
         }
 
         tickMiners(dt)
+        sinceTipCheck += dt
+        if sinceTipCheck >= 0.5 { sinceTipCheck = 0; updateTips(); checkAutoPrestige() }
         if zone == .magma { tickMagma(dt) }
+        if zone == .ruins { tickTide(dt) }
 
         if let remaining = run.treasureCollapse {
             let next = remaining - dt
@@ -307,12 +400,13 @@ final class GameModel: ObservableObject {
 
     var strengthDamage: Double { Config.strength(level: run.level(.strength)) * (1 + itemBonus(.strengthBonus)) }
     var punchDamage: Double {
-        strengthDamage * tool.damage * perkDamageMultiplier * (1 + itemBonus(.punchDamage))
+        strengthDamage * tool.damage * perkDamageMultiplier * (1 + itemBonus(.punchDamage)) * starMultiplier(.fists)
             * (feverActive ? feverMultiplier : 1)
     }
     /// ×2 by default; Overcharge and Crown of Embers raise it.
     var feverMultiplier: Double {
         Config.feverMultiplier + Config.overchargePerLevel * Double(run.level(.overcharge)) + itemBonus(.feverMultiplier)
+            + (owns(.secondWind) ? 1 : 0)
     }
     var perkDamageMultiplier: Double {
         1 + 0.10 * Double(level(.heavyFists)) + (zone == .quarry ? 0.25 * Double(level(.quarryBrawler)) : 0)
@@ -323,7 +417,9 @@ final class GameModel: ObservableObject {
     }
     var focusMaxStacks: Int { Config.focusStacksPerLevel * run.level(.focus) + Int(itemBonus(.focus)) }
     var focusMultiplier: Double { 1 + Config.focusPerStack * Double(focusStacks) }
-    var feverDuration: Double { Config.feverDuration + Config.feverSecondsPerLevel * Double(run.level(.feverStamina)) }
+    var feverDuration: Double {
+        Config.feverDuration + Config.feverSecondsPerLevel * Double(run.level(.feverStamina)) + itemBonus(.feverDuration)
+    }
     var clearBonusShare: Double { clearBonusShare(for: run) }
     func clearBonusShare(for run: ZoneRun) -> Double {
         Config.clearBonusShare + Config.contractsPerLevel * Double(run.level(.contracts)) + itemBonus(.clearBonus)
@@ -351,7 +447,7 @@ final class GameModel: ObservableObject {
     var rhythmEvery: Int { run.level(.rhythm) > 0 ? Config.rhythmBase - run.level(.rhythm) : 0 }
     /// Deep Pockets and Coin Pouch.
     func coinMultiplier(for run: ZoneRun) -> Double {
-        1 + Config.deepPocketsPerLevel * Double(run.level(.deepPockets)) + itemBonus(.coins)
+        (1 + Config.deepPocketsPerLevel * Double(run.level(.deepPockets)) + itemBonus(.coins)) * starMultiplier(.fortune)
     }
     var minerCount: Int { MinerKind.allCases.map { run.level($0.hire) }.reduce(0, +) }
     var minerHit: Double { minerHit(for: run, in: zone) }
@@ -366,7 +462,7 @@ final class GameModel: ObservableObject {
     private func basePunch(for run: ZoneRun, in target: ZoneID) -> Double {
         let quarryBonus = target == .quarry ? 0.25 * Double(level(.quarryBrawler)) : 0
         return Config.strength(level: run.level(.strength)) * (1 + itemBonus(.strengthBonus)) * tool(for: target, run: run).damage
-            * (1 + 0.10 * Double(level(.heavyFists)) + quarryBonus) * (1 + itemBonus(.punchDamage))
+            * (1 + 0.10 * Double(level(.heavyFists)) + quarryBonus) * (1 + itemBonus(.punchDamage)) * starMultiplier(.fists)
     }
 
     /// A miner hit scales with your punch: 30% + 3% per Training level, never below the old flat
@@ -375,7 +471,7 @@ final class GameModel: ObservableObject {
         let training = run.level(.training)
         let share = Config.minerPunchShare + Config.minerPunchSharePerTraining * Double(training)
         let hit = max(Config.minerHit(trainingLevel: training), basePunch(for: run, in: target) * share)
-        return hit * (1 + 0.15 * Double(level(.foreman)) + itemBonus(.minerDamage))
+        return hit * (1 + 0.15 * Double(level(.foreman)) + itemBonus(.minerDamage)) * starMultiplier(.crew)
     }
     var minerPunchShare: Double { Config.minerPunchShare + Config.minerPunchSharePerTraining * Double(run.level(.training)) }
 
@@ -398,7 +494,8 @@ final class GameModel: ObservableObject {
             rhythmCounter += 1
             if rhythmCounter >= rhythmEvery { rhythmCounter = 0; isCrit = true }
         }
-        if isCrit { raw *= critMultiplier }
+        if isCrit { raw *= critMultiplier; stats.crits += 1 }
+        stats.punches += 1
         // Titan Punch: every 20th punch hits ×10 and ignores armor.
         var titan = false
         if level(.titanPunch) > 0 {
@@ -412,8 +509,11 @@ final class GameModel: ObservableObject {
         let hit = titan ? raw : Config.hitDamage(raw: raw, armor: block.armor, penetration: penetration)
         let weak = hit <= raw * Config.damageFloor + 0.0001 && block.armor > 0
         let generation = areaGeneration
-        addFloater(index, text: titan ? "TITAN " + NumberText.hit(hit) : (weak ? "DEFLECT" : NumberText.hit(hit)),
+        let shown = hit * tideFactor(at: index)
+        addFloater(index, text: titan ? "TITAN " + NumberText.hit(shown) : (weak ? "DEFLECT" : NumberText.hit(shown)),
                    kind: isCrit || titan ? .crit : (weak ? .weak : .hit))
+        emit(.punch(index: index, crit: isCrit, weak: weak, titan: titan))
+        if weak { noteTipEvent(.armor) }
         applyDamage(hit, to: index)
         let freeze = max(currentTool.freezeSeconds, itemBonus(.freeze))
         if freeze > 0, generation == areaGeneration {
@@ -462,8 +562,16 @@ final class GameModel: ObservableObject {
         }
     }
 
-    private func applyDamage(_ amount: Double, to index: Int, chainStep: Int = 0, byMiner: Bool = false) {
+    /// High tide in Sunken Ruins, after armor: hits ×0.75, except on the Heart, which takes ×2.
+    func tideFactor(at index: Int) -> Double {
+        guard highTide else { return 1 }
+        return index == Conquest.heartIndex && heartBlock != nil ? Tide.heartFactor : Tide.damageFactor
+    }
+
+    /// `tide: false` for damage the tide doesn't touch (runestone pulses).
+    private func applyDamage(_ amount: Double, to index: Int, chainStep: Int = 0, byMiner: Bool = false, tide: Bool = true) {
         guard run.blocks.indices.contains(index), !run.blocks[index].isBroken else { return }
+        let amount = tide ? amount * tideFactor(at: index) : amount
         let dealt = min(amount, run.blocks[index].hp)
         if byMiner { minerDamage += dealt } else { playerDamage += dealt }
         if byMiner && zone == .magma && level(.coldCrew) > 0 {
@@ -484,6 +592,7 @@ final class GameModel: ObservableObject {
         run.blocks[index].hp = 0
         let lucky = luckyChance > 0 && Double.random(in: 0..<1) < luckyChance
         var payout = lucky ? block.reward * 2 : block.reward
+        if highTide { payout *= Tide.rewardFactor }
         if block.isTreasure {
             payout *= 1 + itemBonus(.treasureReward) + 0.2 * Double(level(.luckyHaul))
                 + (zone == .caverns && level(.geodeSense) > 0 ? 0.5 : 0)
@@ -491,18 +600,29 @@ final class GameModel: ObservableObject {
         earn(payout)
         addFloater(index, text: (lucky ? "LUCKY +" : "+") + NumberText.format(boosted(payout), short: settings.shortNumbers), kind: .coins)
         breakCount += 1
+        stats.blocksBroken += 1
+        if block.isTreasure { stats.treasuresBroken += 1 }
+        emit(.blockBreak(index: index, ore: block.material, treasure: block.isTreasure, lucky: lucky))
         analytics.milestone(.firstBlockBreak)
         if block.material.feverFuel > 0 { addFever(block.material.feverFuel, at: index) }
         if block.material == .heart { defeatHeart() }
         if block.isTreasure {
             analytics.log("treasure_broken", ["zone": .string(zone.rawValue), "area": .int(run.area), "reward": .double(block.reward)])
-            awardChest(Double.random(in: 0..<1) < ItemRules.treasureIronChance ? .iron : .wooden, reason: "treasure")
-            if Double.random(in: 0..<1) < Config.lockpickPerLevel * Double(run.level(.lockpick)) + 0.05 * Double(level(.chestHunter)) {
-                awardChest(.wooden, reason: "lockpick")
+            if Double.random(in: 0..<1) < ItemRules.treasureChestChance {
+                awardChest(Double.random(in: 0..<1) < ItemRules.treasureIronChance ? .iron : .wooden, reason: "treasure")
+                // Lockpick and Chest Hunter can add a second chest to a drop, never one from nothing.
+                if Double.random(in: 0..<1) < Config.lockpickPerLevel * Double(run.level(.lockpick)) + 0.05 * Double(level(.chestHunter)) {
+                    awardChest(.wooden, reason: "lockpick")
+                }
             }
             if canWatch(.treasureDouble, ignoringOffer: true) {
                 treasureOffer = TreasureOffer(coins: boosted(block.reward), expires: clock + AdRules.treasureOfferSeconds)
             }
+        }
+
+        if block.material == .runestone {
+            runePulse(from: index)
+            guard generation == areaGeneration else { return }
         }
 
         if block.material.isCrystal && chainStep < Chain.maxSteps {
@@ -528,8 +648,19 @@ final class GameModel: ObservableObject {
     private func chainBreak(from index: Int, material: Ore, maxHP: Double, step: Int) {
         let generation = areaGeneration
         let damage = maxHP * pow(chainShare, Double(step))
+        if step == 1 { emit(.chain) }
+        var hitHeart = false
         for neighbor in neighbors(of: index) {
             guard generation == areaGeneration else { return }
+            // Heart of the Caverns: a chain that touches the Heart hits it too, once per broken crystal.
+            if zone == .caverns, !hitHeart, Conquest.heartCells.contains(neighbor), let heart = heartBlock, !heart.isBroken {
+                hitHeart = true
+                let hit = Config.hitDamage(raw: damage, armor: heart.armor, penetration: penetration)
+                addFloater(Conquest.heartIndex, text: "CHAIN " + NumberText.hit(hit), kind: .chain)
+                hitPulses[Conquest.heartIndex, default: 0] += 1
+                applyDamage(hit, to: Conquest.heartIndex, chainStep: Chain.maxSteps)
+                continue
+            }
             let target = run.blocks[neighbor]
             guard !target.isBroken, target.material == material else { continue }
             let hit = Config.hitDamage(raw: damage, armor: target.armor, penetration: penetration)
@@ -540,6 +671,8 @@ final class GameModel: ObservableObject {
 
     private func clearArea() {
         logAreaCleared()
+        stats.areasCleared += 1
+        emit(.areaClear)
         run.maxCleared = max(run.maxCleared, run.area)
         if run.area > record.bestCleared {
             if run.area % ItemRules.ironChestEvery == 0 { awardChest(.iron, reason: "record_area") }
@@ -604,11 +737,13 @@ final class GameModel: ObservableObject {
         let total = boosted(amount)
         run.coins += total
         run.lifetimeCoins += total
+        stats.coins[zone.rawValue, default: 0] += total
     }
 
     private func earnUnboosted(_ amount: Double) {
         run.coins += amount
         run.lifetimeCoins += amount
+        stats.coins[zone.rawValue, default: 0] += amount
     }
 
     private func boosted(_ amount: Double) -> Double {
@@ -622,6 +757,7 @@ final class GameModel: ObservableObject {
         let generation = areaGeneration
         var open = run.blocks.filter { !$0.isBroken && !$0.isTreasure && $0.material != .heartPart }.map(\.id)
         open.shuffle()
+        if !open.isEmpty { emit(.zap) }
         for index in open.prefix(count) where generation == areaGeneration {
             let hit = Config.hitDamage(raw: raw, armor: run.blocks[index].armor, penetration: penetration)
             addFloater(index, text: "ZAP " + NumberText.hit(hit), kind: .crit)
@@ -642,6 +778,7 @@ final class GameModel: ObservableObject {
         guard gadgetState(g) == .affordable else { return }
         run.coins -= g.cost
         run.levels[g.levelKey] = 1
+        emit(.purchase)
         analytics.log("gadget_bought", ["gadget": .string(g.rawValue), "zone": .string(zone.rawValue), "area": .int(run.area)])
     }
 
@@ -678,6 +815,7 @@ final class GameModel: ObservableObject {
         let raw = punchDamage * Gadget.dynamiteMultiplier
         let generation = areaGeneration
         addFloater(index, text: "BOOM", kind: .crit)
+        emit(.boom(index: index))
         analytics.log("gadget_used", ["gadget": .string("dynamite"), "zone": .string(zone.rawValue), "area": .int(run.area)])
         punchCount += 1
         for cell in blastArea(around: index) where generation == areaGeneration {
@@ -691,12 +829,30 @@ final class GameModel: ObservableObject {
 
     // MARK: - Items
 
-    /// Sum of an effect over equipped items.
+    /// Sum of an effect over equipped items and active set bonuses.
     func itemBonus(_ effect: ItemEffect) -> Double {
-        equipped.values.reduce(0) { total, id in
-            guard let def = ItemDef.find(id), def.effect == effect, let level = items[id] else { return total }
-            return total + def.value(level: level)
+        let fromItems = equipped.values.reduce(0) { total, id in
+            guard let def = ItemDef.find(id), let level = items[id] else { return total }
+            let own = def.effect == effect ? def.value(level: level) : 0
+            let affix = affixes[id].map { $0.effect == effect ? $0.value : 0 } ?? 0
+            return total + own + affix
         }
+        return fromItems + activeSetBonuses.filter { $0.effect == effect }.map(\.value).reduce(0, +)
+    }
+
+    /// Equipped pieces of a set.
+    func setPieces(_ set: ItemSet) -> Int {
+        equipped.values.filter { ItemDef.find($0)?.set == set }.count
+    }
+
+    var activeSetBonuses: [(set: ItemSet, effect: ItemEffect, value: Double)] {
+        ItemSet.allCases.flatMap { set in
+            set.bonuses.filter { setPieces(set) >= $0.pieces }.map { (set, $0.effect, $0.value) }
+        }
+    }
+
+    var chestLuck: Double {
+        min(ItemRules.chestLuckCap, itemBonus(.chestLuck) + StarPerk.luck.perLevel * Double(starLevel(.luck)))
     }
 
     var offlineEfficiency: Double {
@@ -722,21 +878,33 @@ final class GameModel: ObservableObject {
     func openChest(_ tier: ChestTier) {
         guard chestCount(tier) > 0 else { return }
         chests[tier.rawValue, default: 0] -= 1
-        let rarity = tier.rollRarity(Double.random(in: 0..<1))
-        let pool = ItemDef.all.filter { $0.rarity == rarity }
+        var rarity = tier.rollRarity(Double.random(in: 0..<1), luck: chestLuck)
+        // Bad-luck protection, counted over every chest opened.
+        var guaranteed = false
+        if rarity < .legendary && chestsSinceLegendary + 1 >= ItemRules.legendaryPity {
+            rarity = .legendary; guaranteed = true
+        } else if rarity < .epic && chestsSinceEpic + 1 >= ItemRules.epicPity {
+            rarity = .epic; guaranteed = true
+        }
+        chestsSinceEpic = rarity >= .epic ? 0 : chestsSinceEpic + 1
+        chestsSinceLegendary = rarity >= .legendary ? 0 : chestsSinceLegendary + 1
+        stats.chestsOpened += 1
+        let pool = ItemDef.chestPool.filter { $0.rarity == rarity }
         guard let item = pool.randomElement() else { return }
         let isNew = items[item.id] == nil
         var gained = tier.bonusScrap
         if isNew {
             items[item.id] = 1
+            affixes[item.id] = Affixes.roll(for: item)
             // Fill an empty slot right away so a first item is felt immediately.
             if equipped[item.slot.rawValue] == nil { equipped[item.slot.rawValue] = item.id }
         } else {
             gained += item.rarity.scrapValue
         }
-        gained = Int((Double(gained) * (1 + 0.1 * Double(level(.scrapper)))).rounded())
+        gained = Int((Double(gained) * (1 + 0.1 * Double(level(.scrapper)) + StarPerk.salvage.perLevel * Double(starLevel(.salvage)))).rounded())
         scrap += gained
-        chestReveal = ChestReveal(tier: tier, item: item.id, isNew: isNew, scrap: gained)
+        chestReveal = ChestReveal(tier: tier, item: item.id, isNew: isNew, scrap: gained, guaranteed: guaranteed)
+        emit(.chest(item.rarity))
         analytics.log("chest_opened", ["tier": .string(tier.rawValue), "item": .string(item.id),
                                        "rarity": .string(item.rarity.name), "new": .bool(isNew)])
         save()
@@ -751,6 +919,7 @@ final class GameModel: ObservableObject {
         guard canUpgradeItem(id), let def = ItemDef.find(id), let level = items[id] else { return }
         scrap -= def.upgradeCost(level: level)
         items[id] = level + 1
+        emit(.purchase)
         analytics.log("item_upgraded", ["item": .string(id), "level": .int(level + 1)])
         save()
     }
@@ -765,6 +934,15 @@ final class GameModel: ObservableObject {
     func unequip(_ slot: ItemSlot) {
         equipped[slot.rawValue] = nil
         save()
+    }
+
+    /// Gives the zone's Mythic relic if the player doesn't have it yet.
+    private func grantRelic(for target: ZoneID) {
+        guard let relic = ItemDef.relic(for: target), items[relic.id] == nil else { return }
+        items[relic.id] = 1
+        affixes[relic.id] = Affixes.relicAffix(relic)
+        if equipped[relic.slot.rawValue] == nil { equipped[relic.slot.rawValue] = relic.id }
+        analytics.log("relic_earned", ["item": .string(relic.id), "zone": .string(target.rawValue)])
     }
 
     /// Echo Shard, Stomp Boots, Quake Boots and Storm Charm.
@@ -796,18 +974,25 @@ final class GameModel: ObservableObject {
         }
     }
 
-    // MARK: - Heart of the Quarry
+    // MARK: - Hearts
 
-    /// Coins in every zone: +25% for the Crown, +5% per Crown Star.
-    var crownMultiplier: Double { Conquest.coinMultiplier(hearts: heartsDefeated) }
-    var hasCrown: Bool { heartsDefeated > 0 }
+    /// Hearts defeated at record depths, across every zone.
+    var heartsDefeated: Int { records.values.map(\.heartsDefeated).reduce(0, +) }
+    /// Zones whose Heart has fallen at least once.
+    var crowns: Int { records.values.filter { $0.heartsDefeated > 0 }.count }
+    /// Deepest Heart defeated in the active zone.
+    var deepestHeart: Int { record.deepestHeart }
+    /// Coins in every zone: +25% per zone Crown, +5% per Crown Star.
+    var crownMultiplier: Double { Conquest.coinMultiplier(crowns: crowns, hearts: heartsDefeated) }
+    func hasCrown(_ target: ZoneID) -> Bool { record(for: target).heartsDefeated > 0 }
+    var hasCrown: Bool { hasCrown(zone) }
 
-    /// Pebble Quarry stops at area 100 until its Heart falls; after that it goes on forever.
+    /// A zone stops at area 100 until its Heart falls; after that it goes on forever (Endless Depths).
     func maxArea(for target: ZoneID) -> Int {
-        target == .quarry && hasCrown ? Int.max : target.maxArea
+        hasCrown(target) ? Int.max : target.maxArea
     }
 
-    var isEndless: Bool { zone == .quarry && hasCrown }
+    var isEndless: Bool { hasCrown }
 
     /// Any of the Heart's nine cells punches the Heart.
     private func redirectToHeart(_ index: Int) -> Int {
@@ -823,19 +1008,23 @@ final class GameModel: ObservableObject {
 
     private func defeatHeart() {
         let area = run.area
-        analytics.log("heart_defeated", ["area": .int(area), "record": .bool(area > deepestHeart)])
+        emit(.heartDefeated)
+        analytics.log("heart_defeated", ["zone": .string(zone.rawValue), "area": .int(area), "record": .bool(area > deepestHeart)])
         // Rewards only for a new record depth, so prestige runs cannot farm the same Heart.
         guard area > deepestHeart else {
-            toast = Toast(text: "Heart of the Quarry destroyed again")
+            toast = Toast(text: "\(zone.heartName) destroyed again")
             return
         }
-        deepestHeart = area
-        heartsDefeated += 1
-        let isCrown = heartsDefeated == 1
-        let pc = isCrown ? Conquest.crownPerkCoins : Conquest.starPerkCoins
+        var r = record
+        r.deepestHeart = area
+        r.heartsDefeated += 1
+        record = r
+        let isCrown = r.heartsDefeated == 1
+        let pc = Int((Double(isCrown ? Conquest.crownPerkCoins : Conquest.starPerkCoins) * zone.prestigeMultiplier).rounded())
         perkCoins += pc
         awardChest(.golden, reason: "heart")
-        conquest = ConquestEvent(area: area, isCrown: isCrown, perkCoins: pc, coinMultiplier: crownMultiplier)
+        if isCrown { grantRelic(for: zone) }
+        conquest = ConquestEvent(zone: zone, area: area, isCrown: isCrown, perkCoins: pc, coinMultiplier: crownMultiplier)
         save()
     }
 
@@ -886,6 +1075,7 @@ final class GameModel: ObservableObject {
         }
         adLedger.rollOver()
         adLedger.record(placement)
+        lastAdPlaySeconds = stats.playSeconds
         isPaused = true
         resetTransientInput()
         analytics.log("ad_started", ["placement": .string(placement.rawValue), "today": .int(adLedger.total)])
@@ -911,6 +1101,63 @@ final class GameModel: ObservableObject {
             toast = Toast(text: "Treasure doubled: +\(NumberText.format(pendingTreasureCoins, short: settings.shortNumbers)) \(zone.currencyShort)")
             pendingTreasureCoins = 0
         }
+        save()
+    }
+
+    // MARK: - Store
+
+    /// Credits a verified purchase. Each transaction is credited once, and a one-time product only once ever,
+    /// so restoring or a repeated App Store update never pays out twice. Returns whether anything was granted.
+    @discardableResult
+    func grantPurchase(_ product: StoreProduct, transactionID: String) -> Bool {
+        guard !processedTransactions.contains(transactionID) else { return false }
+        processedTransactions.insert(transactionID)
+        if product.isOneTime {
+            guard !ownedProducts.contains(product.rawValue) else { save(); return false }
+            ownedProducts.insert(product.rawValue)
+        }
+        let grant = product.grant
+        for (tier, count) in grant.chests { chests[tier.rawValue, default: 0] += count }
+        scrap += grant.scrap
+        perkCoins += grant.perkCoins
+        toast = Toast(text: "\(product.title): thank you!")
+        emit(.chest(grant.chests[.golden] != nil ? .legendary : .rare))
+        analytics.log("purchase_granted", ["product": .string(product.rawValue)])
+        save()
+        return true
+    }
+
+    // MARK: - Break ads (interstitials)
+
+    func canShowBreakAd() -> Bool {
+        // Never on top of a card the player should read first.
+        guard breakAdsAvailable, !adsRemoved, !isPaused, zoneIntro == nil, conquest == nil, offlineReport == nil,
+              stats.playSeconds >= BreakAdRules.minimumPlaySeconds,
+              stats.playSeconds - lastAdPlaySeconds >= BreakAdRules.spacingSeconds else { return false }
+        var ledger = adLedger
+        ledger.rollOver()
+        return ledger.breaks < BreakAdRules.dailyCap
+    }
+
+    /// Called at a natural break the player chose. Asks the UI for an interstitial if the rules allow one.
+    func requestBreakAd(_ reason: String) {
+        guard canShowBreakAd() else { return }
+        breakAdRequest += 1
+        analytics.log("break_ad_requested", ["reason": .string(reason)])
+    }
+
+    func breakAdWillShow() {
+        adLedger.rollOver()
+        adLedger.recordBreak()
+        lastAdPlaySeconds = stats.playSeconds
+        isPaused = true
+        resetTransientInput()
+        analytics.log("break_ad_started", ["today": .int(adLedger.breaks)])
+    }
+
+    func breakAdDidFinish(shown: Bool) {
+        isPaused = false
+        if !shown { analytics.log("break_ad_failed", [:]) }
         save()
     }
 
@@ -974,11 +1221,13 @@ final class GameModel: ObservableObject {
         case .digger, .driller:
             var hit = Config.hitDamage(raw: raw, armor: run.blocks[target].armor * kind.armorShare, penetration: pen)
             if run.blocks[target].isTreasure { hit *= Perk.treasureCrewShare(level: level(.treasureCrew)) }
-            addFloater(target, text: NumberText.hit(hit), kind: .miner)
+            addFloater(target, text: NumberText.hit(hit * tideFactor(at: target)), kind: .miner)
+            emit(.minerHit(index: target))
             applyDamage(hit, to: target, byMiner: true)
         case .blaster:
             let generation = areaGeneration
             addFloater(target, text: "BLAST", kind: .miner)
+            emit(.minerHit(index: target))
             for index in blastArea(around: target) where generation == areaGeneration {
                 let b = run.blocks[index]
                 guard !b.isBroken, b.material != .heartPart, !b.isTreasure || level(.treasureCrew) > 0 else { continue }
@@ -1025,6 +1274,51 @@ final class GameModel: ObservableObject {
 
     // MARK: - Magma Depths
 
+    /// One shared tide timer: out for `Tide.interval`, then in for `Tide.duration`.
+    private func tickTide(_ dt: Double) {
+        if tideRemaining > 0 {
+            tideRemaining = max(0, tideRemaining - dt)
+            if tideRemaining == 0 { emit(.tide(rising: false)) }
+            return
+        }
+        tideTimer += dt
+        tideCharge = min(1, tideTimer / Tide.interval)
+        if tideTimer >= Tide.interval {
+            tideTimer = 0
+            tideCharge = 0
+            tideRemaining = Tide.duration
+            emit(.tide(rising: true))
+            analytics.log("high_tide", ["area": .int(run.area)])
+        }
+    }
+
+    /// A broken runestone hits every other block in its row (see `Rune`). The Heart is hit once, for less.
+    private func runePulse(from index: Int) {
+        let generation = areaGeneration
+        let row = index / Config.columns
+        emit(.rune(index: index))
+        addFloater(index, text: "RUNE", kind: .chain)
+        var hitHeart = false
+        for col in 0..<Config.columns {
+            if generation != areaGeneration { return }
+            let cell = row * Config.columns + col
+            guard cell != index else { continue }
+            let target = redirectToHeart(cell)
+            let b = run.blocks[target]
+            guard !b.isBroken, !b.isTreasure else { continue }
+            if b.material == .heart {
+                guard !hitHeart else { continue }
+                hitHeart = true
+                addFloater(target, text: "RUNE " + NumberText.hit(b.maxHP * Rune.heartShare), kind: .chain)
+                hitPulses[target, default: 0] += 1
+                applyDamage(b.maxHP * Rune.heartShare, to: target, tide: false)
+                continue
+            }
+            hitPulses[target, default: 0] += 1
+            applyDamage(b.maxHP * Rune.share, to: target, tide: false)
+        }
+    }
+
     private func tickMagma(_ dt: Double) {
         // Regrowth: a damaged block left alone heals, but never past the top of its crack stage.
         var blocks = run.blocks
@@ -1058,6 +1352,14 @@ final class GameModel: ObservableObject {
     private func erupt(_ vents: [Int]) {
         let generation = areaGeneration
         analytics.log("vent_eruption", ["area": .int(run.area), "vents": .int(vents.count)])
+        emit(.erupt)
+        // Heart of the Depths: every eruption feeds it, up to the top of its current crack.
+        if let heart = heartBlock, !heart.isBroken, heart.hp < heart.maxHP {
+            let i = Conquest.heartIndex
+            let cap = (regrowCap[i] ?? 1) * heart.maxHP
+            run.blocks[i].hp = min(max(cap, heart.hp), heart.hp + heart.maxHP * Conquest.ventHeartHeal * Double(vents.count))
+            addFloater(i, text: "+HEAL", kind: .weak)
+        }
         for vent in vents {
             guard generation == areaGeneration else { return }
             addFloater(vent, text: "ERUPT", kind: .crit)
@@ -1090,6 +1392,7 @@ final class GameModel: ObservableObject {
         let price = cost(kind)
         run.coins -= price
         run.setLevel(kind, run.level(kind) + 1)
+        emit(.purchase)
         analytics.log("upgrade_bought", [
             "zone": .string(zone.rawValue), "upgrade": .string(kind.rawValue), "level": .int(run.level(kind)),
             "cost": .double(price), "area": .int(run.area), "run_seconds": .double(run.playSeconds),
@@ -1113,6 +1416,7 @@ final class GameModel: ObservableObject {
         guard toolState(tool) == .affordable else { return }
         run.coins -= toolCost(tool)
         run.toolIndex = tool.id
+        emit(.purchase)
         analytics.log("tool_bought", ["zone": .string(zone.rawValue), "tool": .string(tool.name), "area": .int(run.area)])
         analytics.milestone(.firstTool)
     }
@@ -1202,6 +1506,7 @@ final class GameModel: ObservableObject {
     private func creditBackground(_ amount: Double, to target: ZoneID) {
         runs[target.rawValue]?.coins += amount
         runs[target.rawValue]?.lifetimeCoins += amount
+        stats.coins[target.rawValue, default: 0] += amount
         runs[target.rawValue]?.leftAt = Date()
     }
 
@@ -1215,6 +1520,9 @@ final class GameModel: ObservableObject {
         regrowCap = [:]
         ventTimer = 0
         ventCharge = 0
+        tideTimer = 0
+        tideCharge = 0
+        tideRemaining = 0
         playerDamage = 0
         minerDamage = 0
         recentPunches = []
@@ -1237,12 +1545,23 @@ final class GameModel: ObservableObject {
                             perks: perks, perkCoins: perkCoins, lastActive: lastActive,
                             coinRushRemaining: coinRushRemaining, adLedger: adLedger)
         var withHearts = data
-        withHearts.heartsDefeated = heartsDefeated
-        withHearts.deepestHeart = deepestHeart
+        // Older versions read Pebble Quarry's Heart record from here.
+        withHearts.heartsDefeated = record(for: .quarry).heartsDefeated
+        withHearts.deepestHeart = record(for: .quarry).deepestHeart
         withHearts.items = items
         withHearts.equipped = equipped
         withHearts.chests = chests
         withHearts.scrap = scrap
+        withHearts.seenTips = seenTips.sorted()
+        withHearts.chestsSinceEpic = chestsSinceEpic
+        withHearts.chestsSinceLegendary = chestsSinceLegendary
+        withHearts.stats = stats
+        withHearts.daily = daily
+        withHearts.affixes = affixes
+        withHearts.stars = stars
+        withHearts.ascended = ascended.sorted()
+        withHearts.ownedProducts = ownedProducts.sorted()
+        withHearts.processedTransactions = processedTransactions.sorted()
         if let encoded = try? JSONEncoder().encode(withHearts) {
             UserDefaults.standard.set(encoded, forKey: Self.saveKey)
         }
@@ -1255,16 +1574,23 @@ final class GameModel: ObservableObject {
         record.seenIntro = true
         perks = [:]
         perkCoins = 0
-        heartsDefeated = 0
-        deepestHeart = 0
         conquest = nil
         if !keepItems {
             items = [:]
             equipped = [:]
             chests = [:]
             scrap = 0
+            chestsSinceEpic = 0
+            chestsSinceLegendary = 0
+            affixes = [:]
         }
+        stars = [:]
+        ascended = []
+        stats = LifetimeStats()
+        daily = DailyState()
+        dailyReveal = nil
         chestReveal = nil
+        activeTip = nil
         activeZone = .quarry
         unlockedZones = [.quarry]
         seeds = [ZoneID.quarry.rawValue: UInt64.random(in: 1...UInt64.max)]
@@ -1292,6 +1618,116 @@ enum ToolState { case owned, affordable, tooExpensive, locked }
 enum PerkState { case maxed, affordable, tooExpensive, locked }
 
 extension GameModel {
+    // MARK: - Ascension
+
+    func buyStar(_ star: StarPerk) {
+        guard starState(star) == .affordable else { return }
+        let price = star.cost(level: starLevel(star))
+        perkCoins -= price
+        stars[star.rawValue] = starLevel(star) + 1
+        emit(.purchase)
+        analytics.log("star_bought", ["star": .string(star.rawValue), "level": .int(starLevel(star)), "cost": .int(price)])
+        save()
+    }
+
+    func buyAscension(_ perk: AscensionPerk) {
+        guard ascensionState(perk) == .affordable else { return }
+        perkCoins -= perk.cost
+        ascended.insert(perk.rawValue)
+        emit(.purchase)
+        analytics.log("ascension_bought", ["perk": .string(perk.rawValue), "cost": .int(perk.cost)])
+        save()
+    }
+
+    /// Auto-Prestige: a run with no new area for a while prestiges itself. Never during a Heart fight.
+    func checkAutoPrestige() {
+        guard owns(.autoPrestige), settings.autoPrestige, canPrestige, heartBlock == nil,
+              run.areaSeconds >= Ascension.autoPrestigeStall else { return }
+        let reward = prestigeReward
+        prestige()
+        toast = Toast(text: "Auto-prestige: +\(reward) Perk Coins")
+    }
+
+    // MARK: - Affixes and salvage
+
+    func affix(_ id: String) -> Affix? { affixes[id] }
+
+    func canRerollAffix(_ id: String) -> Bool {
+        guard let def = ItemDef.find(id), items[id] != nil else { return false }
+        return scrap >= Affixes.rerollCost(def.rarity)
+    }
+
+    func rerollAffix(_ id: String) {
+        guard canRerollAffix(id), let def = ItemDef.find(id) else { return }
+        scrap -= Affixes.rerollCost(def.rarity)
+        affixes[id] = Affixes.roll(for: def)
+        emit(.purchase)
+        analytics.log("affix_rerolled", ["item": .string(id)])
+        save()
+    }
+
+    /// Scrap for breaking an item down: twice its duplicate value plus half the Scrap spent upgrading it.
+    func salvageValue(_ id: String) -> Int {
+        guard let def = ItemDef.find(id), let level = items[id] else { return 0 }
+        let spent = (1..<max(level, 1)).map { def.upgradeCost(level: $0) }.reduce(0, +)
+        return def.rarity.scrapValue * 2 + spent / 2
+    }
+
+    /// Relics can't be salvaged: they never drop again.
+    func canSalvage(_ id: String) -> Bool {
+        guard let def = ItemDef.find(id), items[id] != nil else { return false }
+        return def.heartZone == nil
+    }
+
+    func salvage(_ id: String) {
+        guard canSalvage(id), let def = ItemDef.find(id) else { return }
+        let gained = salvageValue(id)
+        if equipped[def.slot.rawValue] == id { equipped[def.slot.rawValue] = nil }
+        items[id] = nil
+        affixes[id] = nil
+        scrap += gained
+        emit(.purchase)
+        analytics.log("item_salvaged", ["item": .string(id), "scrap": .int(gained)])
+        save()
+    }
+
+    // MARK: - Daily reward
+
+    var dailyUnlocked: Bool { record(for: .quarry).bestArea >= Daily.unlockArea }
+
+    func dailyAvailable(now: Date = Date()) -> Bool {
+        dailyUnlocked && daily.lastClaimDay != Daily.dayKey(now)
+    }
+
+    /// Streak day the next claim would be, 1…7. A missed day starts over at 1; after day 7 the track repeats.
+    func nextDailyDay(now: Date = Date()) -> Int {
+        guard let last = daily.lastClaimDay else { return 1 }
+        if last == Daily.dayKey(now) { return daily.streak % 7 + 1 }
+        return Daily.isYesterday(last, now: now) ? daily.streak % 7 + 1 : 1
+    }
+
+    /// Days already claimed in the current week of the track, for the reward strip.
+    func dailyClaimedThisWeek(now: Date = Date()) -> Int {
+        guard let last = daily.lastClaimDay else { return 0 }
+        if last == Daily.dayKey(now) { return (daily.streak - 1) % 7 + 1 }
+        return Daily.isYesterday(last, now: now) ? daily.streak % 7 : 0
+    }
+
+    func claimDaily(now: Date = Date()) {
+        guard dailyAvailable(now: now) else { return }
+        let day = nextDailyDay(now: now)
+        let reward = DailyReward.track[day - 1]
+        daily.streak = day == 1 ? 1 : daily.streak + 1
+        daily.lastClaimDay = Daily.dayKey(now)
+        for (tier, count) in reward.chests { chests[tier.rawValue, default: 0] += count }
+        scrap += reward.scrap
+        stats.dailyClaims += 1
+        dailyReveal = reward
+        emit(.chest(reward.chests[.golden] != nil ? .legendary : .rare))
+        analytics.log("daily_claimed", ["day": .int(day), "streak": .int(daily.streak)])
+        save()
+    }
+
     // MARK: - Perks
 
     func level(_ perk: Perk) -> Int { perks[perk.rawValue, default: 0] }
@@ -1308,6 +1744,7 @@ extension GameModel {
         let price = perk.cost(level: level(perk))
         perkCoins -= price
         perks[perk.rawValue] = level(perk) + 1
+        emit(.purchase)
         analytics.log("perk_bought", ["perk": .string(perk.rawValue), "level": .int(level(perk)), "cost": .int(price)])
         save()
     }
@@ -1358,6 +1795,10 @@ extension GameModel {
         fresh.coins = Perk.seedMoneyAmounts[min(level(.seedMoney), Perk.seedMoneyAmounts.count - 1)]
         let crew = min(level(.dayOneCrew), UpgradeKind.hireMiner.maxLevel)
         if crew > 0 { fresh.setLevel(.hireMiner, crew) }
+        // Union Contract: the old run's miners come along.
+        if owns(.unionContract), let old = runs[target.rawValue] {
+            for kind in MinerKind.allCases { fresh.setLevel(kind.hire, max(fresh.level(kind.hire), old.level(kind.hire))) }
+        }
         fresh.area = min(1 + 2 * level(.expressElevator), target.maxArea)
         fresh.blocks = AreaGenerator.blocks(zone: target, area: fresh.area, seed: seed(for: target), treasureChance: treasureChance)
         return fresh
@@ -1390,7 +1831,9 @@ extension GameModel {
             return total + b.maxHP / dps
         }
         guard seconds > 0 else { return 0 }
-        let rewards = blocks.map(\.reward).reduce(0, +) * (1 + clearBonusShare(for: run))
+        var rewards = blocks.map(\.reward).reduce(0, +) * (1 + clearBonusShare(for: run))
+        // Sunken Ruins: average the tide over a full cycle.
+        if target == .ruins { rewards *= Tide.averageRewardFactor * Tide.averageDamageFactor }
         return rewards * crownMultiplier * coinMultiplier(for: run) / seconds
     }
 
@@ -1429,6 +1872,7 @@ extension GameModel {
             "coins_quarry": .double(report.entries.first { $0.zone == .quarry }?.coins ?? 0),
             "coins_caverns": .double(report.entries.first { $0.zone == .caverns }?.coins ?? 0),
             "coins_magma": .double(report.entries.first { $0.zone == .magma }?.coins ?? 0),
+            "coins_ruins": .double(report.entries.first { $0.zone == .ruins }?.coins ?? 0),
         ])
         for entry in report.entries {
             if entry.zone == zone {

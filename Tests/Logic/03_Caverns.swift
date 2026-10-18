@@ -17,17 +17,18 @@ func grind(_ g: GameModel, to area: Int, buy: Bool = true) {
         UserDefaults.standard.removeObject(forKey: key)
         let g = GameModel(analytics: Analytics(sinks: [MemoryAnalyticsSink()], stateKey: "test.analytics"))
         check(g.zone == .quarry && g.unlockedZones == [.quarry], "fresh game is Zone 1 only")
-        grind(g, to: 14)
-        check(!g.unlockAreaMet(.caverns), "Zone 2 requirement not met at area 14")
-        grind(g, to: 15)
-        check(g.unlockAreaMet(.caverns), "Zone 2 requirement met after clearing area 15")
+        let need = ZoneID.caverns.unlock!.clearArea, price = ZoneID.caverns.unlock!.costs[0].amount
+        grind(g, to: need - 1)
+        check(!g.unlockAreaMet(.caverns), "Zone 2 requirement not met at area \(need - 1)")
+        grind(g, to: need)
+        check(g.unlockAreaMet(.caverns), "Zone 2 requirement met after clearing area \(need)")
         grind(g, to: 30, buy: false)
-        while g.run.coins < 15_000 { for i in 0..<30 { g.punch(i) } }
+        while g.run.coins < price { for i in 0..<30 { g.punch(i) } }
         let copperBefore = g.run.coins, quarryArea = g.run.area
-        check(g.canUnlock(.caverns) && g.unlockCost(.caverns) == 15_000, "can unlock for 15,000 Copper")
+        check(g.canUnlock(.caverns) && g.unlockCost(.caverns) == price, "can unlock for \(Int(price)) Copper")
         g.unlockZone(.caverns)
         check(g.zone == .caverns && g.isUnlocked(.caverns) && g.zoneIntro == .caverns, "unlocked, moved into Zone 2, intro shown")
-        check(g.run(for: .quarry)!.coins == copperBefore - 15_000 && g.run(for: .quarry)!.area == quarryArea, "Copper paid, Zone 1 progress kept")
+        check(g.run(for: .quarry)!.coins == copperBefore - price && g.run(for: .quarry)!.area == quarryArea, "Copper paid, Zone 1 progress kept")
         check(g.run.area == 1 && g.run.coins == 0 && g.run.levels.isEmpty, "Zone 2 starts fresh")
         let mats = Set(g.run.blocks.map(\.material))
         check(mats.isSubset(of: [.limestone, .quartz, .geode]), "Zone 2 area 1 uses Zone 2 materials: \(mats)")
@@ -66,7 +67,7 @@ func grind(_ g: GameModel, to area: Int, buy: Bool = true) {
         // Surveyor
         let pc = g.perkCoins
         g.buyPerk(.seedMoney); g.buyPerk(.prospector); g.buyPerk(.prospector); g.buyPerk(.surveyor)
-        check(g.level(.surveyor) == 1 && g.unlockCost(.caverns) == 14_250, "Surveyor 1 = −5% (PC \(pc))")
+        check(g.level(.surveyor) == 1 && g.unlockCost(.caverns) == (ZoneID.caverns.unlock!.costs[0].amount * 0.95).rounded(), "Surveyor 1 = −5% (PC \(pc))")
         // Save roundtrip
         g.save()
         let g2 = GameModel(analytics: Analytics(sinks: [MemoryAnalyticsSink()], stateKey: "test.analytics"))

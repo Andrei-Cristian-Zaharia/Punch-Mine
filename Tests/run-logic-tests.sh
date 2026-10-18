@@ -18,8 +18,10 @@ for suite in "$ROOT"/Tests/Logic/*.swift; do
             "$ROOT"/MyApp/Game/*.swift "$source" 2> "$WORK/$name.build.txt"; then
         echo "BUILD FAILED $name"; grep error: "$WORK/$name.build.txt"; broken=$((broken + 1)); continue
     fi
-    output="$(cd "$WORK" && "./$name")"
+    output="$(cd "$WORK" && "./$name" 2>&1)"; code=$?
     p=$(print -r -- "$output" | grep -c '^PASS'); f=$(print -r -- "$output" | grep -c '^FAIL')
+    # A crash stops the suite early: count it as a failure and show why.
+    if [[ $code -ne 0 ]]; then f=$((f + 1)); output+=$'\n'"FAIL suite exited with code $code: $(print -r -- "$output" | grep -v '^PASS' | tail -1)"; fi
     passed=$((passed + p)); failed=$((failed + f))
     printf '%-24s %3d pass %3d fail\n' "$name" "$p" "$f"
     print -r -- "$output" | grep '^FAIL' | sed 's/^/    /'

@@ -254,7 +254,7 @@ private struct UpgradeRow: View {
         case .treasureHunter:
             return "+\(l) → +\(l + 1) points treasure chance"
         case .lockpick:
-            return "\(Int(Config.lockpickPerLevel * 100) * l)% → \(Int(Config.lockpickPerLevel * 100) * (l + 1))% chance of an extra chest"
+            return "\(Int(Config.lockpickPerLevel * 100) * l)% → \(Int(Config.lockpickPerLevel * 100) * (l + 1))% chance a chest comes with a second one"
         }
     }
 

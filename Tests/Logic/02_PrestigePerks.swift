@@ -15,6 +15,7 @@ func grind(_ g: GameModel, to area: Int) {
         let g = GameModel(analytics: Analytics(sinks: [MemoryAnalyticsSink()], stateKey: "test.analytics"))
         // Formula table from the design doc
         check([12, 15, 18, 20, 22, 25, 28, 30].map { Prestige.depthReward(area: $0) } == [7, 15, 25, 33, 43, 60, 79, 93], "PC table matches doc")
+        check([31, 50, 100].map { Prestige.depthReward(area: $0) } == [97, 168, 356], "past area 30 PC grows 3.75 per area (31 → 97, 100 → 356)")
         grind(g, to: 11)
         check(!g.canPrestige, "no prestige at area 11 cleared")
         grind(g, to: 12)

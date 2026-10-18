@@ -19,6 +19,7 @@ private struct OreStyle {
     enum Deposit {
         case none, pebbles, nuggets, crystals, gems, rings, plates, lumps, core, embers
         case chest, geode, opal
+        case coral, rune, bone, clam
     }
 
     /// Flat body color and the darker band along the bottom.
@@ -89,6 +90,33 @@ private struct OreStyle {
             OreStyle(base: 0x42302A, shade: 0x2E201C, texture: .none)
         case .fireOpal:
             OreStyle(base: 0x5C3219, shade: 0x40220F, texture: .none, deposit: .opal)
+        case .sapphire:
+            OreStyle(base: 0x2E4C8A, shade: 0x203668, texture: .none, deposit: .crystals, count: 3,
+                     ore: (0x6FA8FF, 0xE4F0FF, 0x3A6CD8), sparkle: true)
+        case .starstone:
+            OreStyle(base: 0x1E2240, shade: 0x13162C, texture: .stars, deposit: .gems, count: 2,
+                     ore: (0xFFE58A, 0xFFFFFF, 0xD8A83A), sparkle: true)
+        case .brimstone:
+            OreStyle(base: 0x5A4A22, shade: 0x403416, deposit: .lumps, count: 3, ore: (0xF2D03A, 0xFFF3A0, 0xB89414))
+        case .dragonglass:
+            OreStyle(base: 0x1C1018, shade: 0x10080E, texture: .none, deposit: .plates,
+                     ore: (0xE2453A, 0xFFB0A0, 0x8E1A16), sparkle: true)
+        // Sunken Ruins
+        case .sand:
+            OreStyle(base: 0xDCC08A, shade: 0xBC9E68, deposit: .pebbles, count: 2, ore: (0xF4ECDC, 0xFFFFFF, 0xC8B89A))
+        case .coral:
+            OreStyle(base: 0x3A6A8A, shade: 0x2A5070, texture: .none, deposit: .coral, ore: (0xFF7A8A, 0xFFC6CC, 0xC8485A))
+        case .ruinStone:
+            OreStyle(base: 0x7A968C, shade: 0x5A766C, texture: .dashes, deposit: .rings, count: 1, ore: (0x9FD8C8, 0xE0FFF4, 0x4A8070))
+        case .runestone:
+            OreStyle(base: 0x3A5A6E, shade: 0x2A4050, texture: .none, deposit: .rune, ore: (0x5FF0E0, 0xE8FFFC, 0x1FA8A0))
+        case .abyssite:
+            OreStyle(base: 0x24385A, shade: 0x182640, texture: .stars, deposit: .gems, count: 2,
+                     ore: (0x4F8AFF, 0xD6E6FF, 0x2A4CB0), sparkle: true)
+        case .leviathanBone:
+            OreStyle(base: 0x2E4A5E, shade: 0x203644, texture: .none, deposit: .bone, ore: (0xEDE4CA, 0xFFFFFF, 0xB8AC8C))
+        case .pearlClam:
+            OreStyle(base: 0x2E5470, shade: 0x203E56, texture: .none, deposit: .clam)
         case .heart, .heartPart:
             OreStyle(base: 0x5A0E14, shade: 0x3A060C, texture: .none)
         }
@@ -289,6 +317,61 @@ enum OreRenderer {
             }
         case .chest:
             drawChest(&pt)
+        case .coral:
+            // Branching coral: a trunk with forked arms, rounded tips.
+            let branches: [[(Double, Double)]] = [[(28, 47), (28, 30), (20, 20), (18, 10)], [(28, 30), (36, 20), (38, 9)],
+                                                   [(22, 23), (12, 18)], [(34, 23), (45, 17)], [(28, 38), (40, 34)]]
+            for width in [7.0, 4.4] {
+                for b in branches {
+                    var path = Path()
+                    path.move(to: pt.p(b[0].0, b[0].1))
+                    for q in b.dropFirst() { path.addLine(to: pt.p(q.0, q.1)) }
+                    pt.context.stroke(path, with: pt.c(width > 5 ? ink : main),
+                                      style: StrokeStyle(lineWidth: width * pt.s, lineCap: .round, lineJoin: .round))
+                }
+            }
+            for (x, y) in [(18.0, 10.0), (38, 9), (12, 18), (45, 17)] {
+                pt.context.fill(Path(ellipseIn: pt.r(x - 1.4, y - 1.4, 2.8, 2.8)), with: pt.c(light))
+            }
+        case .rune:
+            // A carved tablet with a glowing glyph.
+            pt.inked(Path(roundedRect: pt.r(13, 9, 30, 36), cornerRadius: 4 * pt.s), dark, width: 1.6)
+            pt.context.fill(Path(roundedRect: pt.r(16, 12, 24, 30), cornerRadius: 3 * pt.s), with: pt.c(0x1C3240))
+            var glyph = Path()
+            glyph.move(to: pt.p(28, 15)); glyph.addLine(to: pt.p(28, 39))
+            glyph.move(to: pt.p(28, 21)); glyph.addLine(to: pt.p(20, 28)); glyph.addLine(to: pt.p(28, 33))
+            glyph.move(to: pt.p(28, 21)); glyph.addLine(to: pt.p(36, 28)); glyph.addLine(to: pt.p(28, 33))
+            pt.context.stroke(glyph, with: pt.c(main, 0.35), style: StrokeStyle(lineWidth: 5.5 * pt.s, lineCap: .round, lineJoin: .round))
+            pt.context.stroke(glyph, with: pt.c(light), style: StrokeStyle(lineWidth: 2 * pt.s, lineCap: .round, lineJoin: .round))
+        case .bone:
+            // A great curved rib with a knobbed end.
+            var rib = Path()
+            rib.move(to: pt.p(10, 44)); rib.addQuadCurve(to: pt.p(44, 12), control: pt.p(14, 14))
+            pt.context.stroke(rib, with: pt.c(ink), style: StrokeStyle(lineWidth: 11 * pt.s, lineCap: .round))
+            pt.context.stroke(rib, with: pt.c(main), style: StrokeStyle(lineWidth: 7.5 * pt.s, lineCap: .round))
+            for (x, y) in [(41.0, 9.0), (47, 15)] { pt.inked(Path(ellipseIn: pt.r(x - 4, y - 4, 8, 8)), main, width: 1.4) }
+            var shadow = Path()
+            shadow.move(to: pt.p(14, 42)); shadow.addQuadCurve(to: pt.p(42, 16), control: pt.p(19, 19))
+            pt.context.stroke(shadow, with: pt.c(dark), style: StrokeStyle(lineWidth: 2 * pt.s, lineCap: .round))
+            var shine = Path()
+            shine.move(to: pt.p(12, 38)); shine.addQuadCurve(to: pt.p(30, 15), control: pt.p(13, 20))
+            pt.context.stroke(shine, with: pt.c(light), style: StrokeStyle(lineWidth: 1.6 * pt.s, lineCap: .round))
+        case .clam:
+            // Giant clam: two ridged shells, open, with a pearl.
+            var lower = Path()
+            lower.move(to: pt.p(8, 30)); lower.addQuadCurve(to: pt.p(48, 30), control: pt.p(28, 56)); lower.closeSubpath()
+            pt.inked(lower, 0xE8B8C8, width: 1.8)
+            var upper = Path()
+            upper.move(to: pt.p(8, 28)); upper.addQuadCurve(to: pt.p(48, 28), control: pt.p(28, 2)); upper.closeSubpath()
+            pt.inked(upper, 0xF4CCD8, width: 1.8)
+            for x in [16.0, 22, 28, 34, 40] {
+                var ridge = Path()
+                ridge.move(to: pt.p(28, 27)); ridge.addLine(to: pt.p(x, 27 - 12 + abs(x - 28) * 0.5))
+                pt.context.stroke(ridge, with: pt.c(0xC88898), lineWidth: 1.2 * pt.s)
+            }
+            pt.inked(Path(ellipseIn: pt.r(22, 28, 12, 12)), 0xF8F8FF, width: 1.4)
+            pt.context.fill(Path(ellipseIn: pt.r(25, 30, 4, 3)), with: .color(.white))
+            drawSparkle(x: 44, y: 12, size: 4.5, &pt)
         case .geode:
             pt.inked(Path(ellipseIn: pt.r(8, 8, 40, 40)), 0x9A9EA6, width: 1.8)
             pt.inked(Path(ellipseIn: pt.r(14, 14, 28, 28)), 0x1C6E73, width: 1.4)
@@ -501,3 +584,13 @@ struct OreGalleryView: View {
     }
 }
 #endif
+
+extension Ore {
+    /// Chunk colors for the break debris: body, shadow and the ore deposit (when there is one).
+    var debrisColors: [Color] {
+        let style = OreStyle.of(self)
+        var colors = [Color(hex: style.base), Color(hex: style.shade)]
+        if style.ore.0 != 0 { colors.append(Color(hex: style.ore.0)) }
+        return colors
+    }
+}

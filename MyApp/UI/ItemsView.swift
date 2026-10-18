@@ -7,6 +7,7 @@ extension Rarity {
         case .rare: Color(hex: 0x4FA3FF)
         case .epic: Color(hex: 0xB06CFF)
         case .legendary: Color(hex: 0xFFB020)
+        case .mythic: Color(hex: 0xFF4A6A)
         }
     }
 }
@@ -49,6 +50,7 @@ struct ItemsView: View {
     @EnvironmentObject private var game: GameModel
     @Environment(\.dismiss) private var dismiss
     @State private var selected: ItemDef?
+    @State private var showOdds = false
 
     var body: some View {
         NavigationStack {
@@ -56,6 +58,7 @@ struct ItemsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     chestSection
                     equippedSection
+                    setsSection
                     collectionSection
                 }
                 .padding(16)
@@ -77,6 +80,9 @@ struct ItemsView: View {
                 }
             }
             .sheet(item: $selected) { def in ItemDetailView(def: def) }
+            #if DEBUG
+            .onAppear { if UserDefaults.standard.string(forKey: "debugScreen") == "itemdetail" { selected = game.equippedItem(.belt) } }
+            #endif
             .sheet(item: $game.chestReveal) { reveal in ChestRevealView(reveal: reveal) }
         }
         .foregroundStyle(Theme.text)
@@ -84,7 +90,7 @@ struct ItemsView: View {
 
     private var chestSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header("CHESTS", detail: "Treasure blocks, record areas (every 10th) and Hearts drop chests.")
+            header("CHESTS", detail: "Treasure blocks, record areas (every 10th), Hearts and daily rewards give chests.")
             HStack(spacing: 8) {
                 ForEach(ChestTier.allCases) { tier in
                     let count = game.chestCount(tier)
@@ -110,6 +116,78 @@ struct ItemsView: View {
                     .frame(maxWidth: .infinity)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
                 }
+            }
+            HStack(alignment: .firstTextBaseline) {
+                Text("Epic or better within \(ItemRules.epicPity - game.chestsSinceEpic) chests · Legendary within \(ItemRules.legendaryPity - game.chestsSinceLegendary)")
+                    .font(Theme.body(11)).foregroundStyle(Theme.textMuted)
+                Spacer(minLength: 6)
+                Button(showOdds ? "Hide odds" : "Drop odds") { withAnimation { showOdds.toggle() } }
+                    .font(Theme.body(11, .black)).foregroundStyle(Theme.gold)
+            }
+            if showOdds { oddsTable }
+        }
+    }
+
+    private var oddsTable: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text("").frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(Rarity.chestRarities) { r in
+                    Text(r.name).font(Theme.body(10, .black)).foregroundStyle(r.color).frame(width: 58, alignment: .trailing)
+                }
+            }
+            ForEach(ChestTier.allCases) { tier in
+                HStack {
+                    Text(tier.name).font(Theme.body(11, .heavy)).frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(Array(tier.odds(luck: game.chestLuck).enumerated()), id: \.offset) { _, p in
+                        Text(Self.percent(p)).font(Theme.body(11)).monospacedDigit().frame(width: 58, alignment: .trailing)
+                    }
+                }
+            }
+            if game.chestLuck > 0 {
+                Text("Includes +\(Int((game.chestLuck * 100).rounded()))% chest luck from your gear.")
+                    .font(Theme.body(10)).foregroundStyle(Theme.textMuted).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(10)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+    }
+
+    static func percent(_ p: Double) -> String {
+        p == 0 ? "–" : (p < 0.01 ? String(format: "%.1f%%", p * 100) : String(format: "%.0f%%", p * 100))
+    }
+
+    private var setsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header("SETS", detail: "Wear 2 or 4 pieces of a set for a bonus on top of the items.")
+            ForEach(ItemSet.allCases) { set in
+                let worn = game.setPieces(set)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(set.name).font(Theme.body(14, .black))
+                        Spacer()
+                        Text("\(worn) / 4 worn").font(Theme.body(11, .heavy)).foregroundStyle(worn >= 2 ? Theme.gold : Theme.textMuted)
+                    }
+                    HStack(spacing: 6) {
+                        ForEach(set.pieces) { def in
+                            let owned = game.items[def.id] != nil
+                            ItemIcon(def: def, owned: owned, size: 34)
+                                .opacity(game.equipped[def.slot.rawValue] == def.id ? 1 : 0.55)
+                                .onTapGesture { if owned { selected = def } }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    ForEach(set.bonuses, id: \.pieces) { bonus in
+                        Label("\(bonus.pieces) pieces: " + ItemDef.describe(bonus.effect, value: bonus.value),
+                              systemImage: worn >= bonus.pieces ? "checkmark.circle.fill" : "circle")
+                            .font(Theme.body(12))
+                            .foregroundStyle(worn >= bonus.pieces ? Theme.text : Theme.textMuted)
+                    }
+                }
+                .padding(10)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityElement(children: .combine)
             }
         }
     }
@@ -166,7 +244,7 @@ struct ItemsView: View {
                             } label: {
                                 VStack(spacing: 4) {
                                     ItemIcon(def: def, owned: owned, size: 46)
-                                    Text(owned ? def.name : def.rarity.name)
+                                    Text(owned ? def.name : (def.heartZone != nil ? "Heart relic" : def.rarity.name))
                                         .font(Theme.body(11, .heavy)).lineLimit(1).minimumScaleFactor(0.6)
                                         .foregroundStyle(owned ? Theme.text : def.rarity.color.opacity(0.7))
                                     Text(owned ? "Lv \(game.itemLevel(def.id))" + (game.equipped[slot.rawValue] == def.id ? " · ON" : "") : " ")
@@ -197,6 +275,7 @@ struct ItemDetailView: View {
     @EnvironmentObject private var game: GameModel
     @Environment(\.dismiss) private var dismiss
     let def: ItemDef
+    @State private var confirmSalvage = false
 
     var body: some View {
         let level = game.itemLevel(def.id)
@@ -210,6 +289,12 @@ struct ItemDetailView: View {
                 Text(def.name).font(Theme.display(28))
                 Text("\(def.rarity.name) \(def.slot.name) · Lv \(level) / \(def.rarity.maxLevel)")
                     .font(Theme.body(14, .heavy)).foregroundStyle(def.rarity.color)
+                if let nod = def.nod {
+                    Text("A nod to \(nod)").font(Theme.body(12).italic()).foregroundStyle(Theme.textMuted)
+                }
+                if let zone = def.heartZone {
+                    Text("Relic of the \(zone.heartName)").font(Theme.body(12).italic()).foregroundStyle(Theme.textMuted)
+                }
             }
             VStack(alignment: .leading, spacing: 10) {
                 Label(def.describe(level: level), systemImage: "checkmark.circle.fill")
@@ -217,6 +302,30 @@ struct ItemDetailView: View {
                 if !maxed {
                     Label("Next: " + def.describe(level: level + 1), systemImage: "arrow.up.circle")
                         .foregroundStyle(Theme.textMuted)
+                }
+                if let affix = game.affix(def.id) {
+                    HStack {
+                        Label(affix.text, systemImage: "sparkle")
+                            .foregroundStyle(Theme.gold)
+                        Spacer(minLength: 6)
+                        Button("Reroll · \(Affixes.rerollCost(def.rarity))") { game.rerollAffix(def.id) }
+                            .font(Theme.body(12, .black))
+                            .disabled(!game.canRerollAffix(def.id))
+                            .foregroundStyle(game.canRerollAffix(def.id) ? Theme.gold : Theme.textFaint)
+                            .accessibilityLabel("Reroll bonus stat for \(Affixes.rerollCost(def.rarity)) Scrap")
+                    }
+                    Text("Bonus stat · roll quality \(Int((affix.quality * 100).rounded()))%").font(Theme.body(11)).foregroundStyle(Theme.textFaint)
+                }
+                if let set = def.set {
+                    let worn = game.setPieces(set)
+                    Divider()
+                    Text("\(set.name) · \(worn) / 4 worn").font(Theme.body(13, .black))
+                    ForEach(set.bonuses, id: \.pieces) { bonus in
+                        Label("\(bonus.pieces) pieces: " + ItemDef.describe(bonus.effect, value: bonus.value),
+                              systemImage: worn >= bonus.pieces ? "checkmark.circle.fill" : "circle")
+                            .font(Theme.body(13))
+                            .foregroundStyle(worn >= bonus.pieces ? Theme.text : Theme.textMuted)
+                    }
                 }
             }
             .font(Theme.body(15))
@@ -249,7 +358,23 @@ struct ItemDetailView: View {
                     .foregroundStyle(isEquipped ? Theme.text : Color(hex: 0x1A120E))
             }
             .buttonStyle(.plain)
-            Text("You have \(game.scrap) Scrap").font(Theme.body(12)).foregroundStyle(Theme.textFaint)
+            HStack {
+                Text("You have \(game.scrap) Scrap").font(Theme.body(12)).foregroundStyle(Theme.textFaint)
+                Spacer()
+                if game.canSalvage(def.id) {
+                    Button("Salvage for \(game.salvageValue(def.id)) Scrap", role: .destructive) { confirmSalvage = true }
+                        .font(Theme.body(12, .heavy))
+                        .foregroundStyle(Color(hex: 0xFF7A66))
+                }
+            }
+            .confirmationDialog("Salvage \(def.name)?", isPresented: $confirmSalvage, titleVisibility: .visible) {
+                Button("Salvage for \(game.salvageValue(def.id)) Scrap", role: .destructive) {
+                    game.salvage(def.id)
+                    dismiss()
+                }
+            } message: {
+                Text("The item, its levels and its bonus stat are gone. It can drop again from chests.")
+            }
         }
         .padding(20)
         .background(Theme.ground.ignoresSafeArea())
@@ -274,8 +399,14 @@ struct ChestRevealView: View {
                 .scaleEffect(shown || game.settings.reducedMotion ? 1 : 0.4)
             Text(def.rarity.name.uppercased()).font(Theme.body(14, .black)).tracking(2).foregroundStyle(def.rarity.color)
             Text(def.name).font(Theme.display(32))
+            if reveal.guaranteed {
+                Text("Bad-luck protection kicked in").font(Theme.body(12, .heavy)).foregroundStyle(Theme.gold)
+            }
             Text(reveal.isNew ? "NEW! " + def.describe(level: 1) : "Duplicate: turned into Scrap")
                 .font(Theme.body(15)).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
+            if reveal.isNew, let affix = game.affix(def.id) {
+                Label(affix.text, systemImage: "sparkle").font(Theme.body(14, .heavy)).foregroundStyle(Theme.gold)
+            }
             Label("+\(reveal.scrap) Scrap", systemImage: "gearshape.2.fill")
                 .font(Theme.body(15, .black)).foregroundStyle(Color(hex: 0xC8D0DC))
             Spacer()

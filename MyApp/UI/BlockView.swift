@@ -136,9 +136,10 @@ struct FloaterView: View {
     }
 }
 
-/// The Heart of the Quarry: one big block across the centre 3 × 3, with its name and HP always visible.
+/// A zone's Heart: one big block across the centre 3 × 3, with its name and HP always visible.
 struct HeartView: View {
     let block: Block
+    var zone: ZoneID = .quarry
     let rank: Int
     let pulse: Int
     let reducedMotion: Bool
@@ -148,16 +149,15 @@ struct HeartView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18)
-                .fill(RadialGradient(colors: [Color(hex: 0xFF8A3D), Color(hex: 0xA8202A), Color(hex: 0x3A0810)],
-                                     center: .center, startRadius: 4, endRadius: 140))
-            RoundedRectangle(cornerRadius: 18).strokeBorder(Color(hex: 0xFF5A3D), lineWidth: 3)
+                .fill(RadialGradient(colors: palette.gradient.map { Color(hex: $0) }, center: .center, startRadius: 4, endRadius: 140))
+            RoundedRectangle(cornerRadius: 18).strokeBorder(Color(hex: palette.edge), lineWidth: 3)
             Image(systemName: "suit.heart.fill")
                 .resizable().scaledToFit()
-                .foregroundStyle(Color(hex: 0xFFD27A).opacity(0.9))
+                .foregroundStyle(Color(hex: palette.core).opacity(0.9))
                 .padding(44)
                 .scaleEffect(glow && !reducedMotion ? 1.06 : 0.96)
             VStack {
-                Text(rank == 0 ? "HEART OF THE QUARRY" : "HEART · DEPTH \(Conquest.heartArea + rank * Conquest.endlessHeartEvery)")
+                Text(rank == 0 ? zone.heartName.uppercased() : "HEART · DEPTH \(Conquest.heartArea + rank * Conquest.endlessHeartEvery)")
                     .font(Theme.body(11, .black)).tracking(0.3)
                     .lineLimit(1).minimumScaleFactor(0.5)
                     .padding(.horizontal, 8).padding(.vertical, 3)
@@ -168,7 +168,7 @@ struct HeartView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.black.opacity(0.6))
-                            Capsule().fill(Theme.ember).frame(width: geo.size.width * block.hpFraction)
+                            Capsule().fill(Color(hex: palette.edge)).frame(width: geo.size.width * block.hpFraction)
                         }
                     }
                     .frame(height: 8)
@@ -179,7 +179,7 @@ struct HeartView: View {
             }
             .padding(10)
         }
-        .shadow(color: Color(hex: 0xFF5A3D).opacity(glow ? 0.8 : 0.4), radius: glow ? 18 : 10)
+        .shadow(color: Color(hex: palette.edge).opacity(glow ? 0.8 : 0.4), radius: glow ? 18 : 10)
         .scaleEffect(squash)
         .onAppear {
             guard !reducedMotion else { return }
@@ -194,5 +194,15 @@ struct HeartView: View {
             }
         }
         .accessibilityHidden(true)
+    }
+
+    /// Molten red for the Quarry, icy blue crystal for the Caverns, white-hot for the Depths, sea-green for the Ruins.
+    private var palette: (gradient: [UInt32], edge: UInt32, core: UInt32) {
+        switch zone {
+        case .quarry: ([0xFF8A3D, 0xA8202A, 0x3A0810], 0xFF5A3D, 0xFFD27A)
+        case .caverns: ([0x9FF6FF, 0x3A6CD8, 0x14163A], 0x6FE0E6, 0xE4F0FF)
+        case .magma: ([0xFFF0A0, 0xFF6A1A, 0x3A0A04], 0xFFB040, 0xFFF6D0)
+        case .ruins: ([0xA8FFE0, 0x2A9AB0, 0x06203A], 0x5FE0C8, 0xE8FFF8)
+        }
     }
 }

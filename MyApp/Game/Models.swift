@@ -90,6 +90,36 @@ struct Settings: Codable, Equatable {
     var shortNumbers = true
     /// When on, one tap keeps punching that block until it breaks.
     var tapToAutoPunch = false
+    var soundEffects = true
+    var music = true
+    /// Screen shake on big hits. Reduced Motion turns it off as well.
+    var screenShake = true
+    var showTips = true
+    /// Only does anything once the Auto-Prestige Ascension perk is owned.
+    var autoPrestige = true
+    /// 0…1.
+    var effectsVolume = 1.0
+    var musicVolume = 1.0
+
+    init() {}
+
+    /// Missing keys keep their defaults, so saves from older versions load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Settings()
+        reducedMotion = try c.decodeIfPresent(Bool.self, forKey: .reducedMotion) ?? d.reducedMotion
+        vibration = try c.decodeIfPresent(Vibration.self, forKey: .vibration) ?? d.vibration
+        damageNumbers = try c.decodeIfPresent(DamageNumbers.self, forKey: .damageNumbers) ?? d.damageNumbers
+        shortNumbers = try c.decodeIfPresent(Bool.self, forKey: .shortNumbers) ?? d.shortNumbers
+        tapToAutoPunch = try c.decodeIfPresent(Bool.self, forKey: .tapToAutoPunch) ?? d.tapToAutoPunch
+        soundEffects = try c.decodeIfPresent(Bool.self, forKey: .soundEffects) ?? d.soundEffects
+        music = try c.decodeIfPresent(Bool.self, forKey: .music) ?? d.music
+        screenShake = try c.decodeIfPresent(Bool.self, forKey: .screenShake) ?? d.screenShake
+        showTips = try c.decodeIfPresent(Bool.self, forKey: .showTips) ?? d.showTips
+        autoPrestige = try c.decodeIfPresent(Bool.self, forKey: .autoPrestige) ?? d.autoPrestige
+        effectsVolume = try c.decodeIfPresent(Double.self, forKey: .effectsVolume) ?? d.effectsVolume
+        musicVolume = try c.decodeIfPresent(Double.self, forKey: .musicVolume) ?? d.musicVolume
+    }
 }
 
 struct SaveData: Codable {
@@ -106,7 +136,7 @@ struct SaveData: Codable {
     var lastActive: Date?
     var coinRushRemaining: Double = 0
     var adLedger = AdLedger()
-    /// Hearts of the Quarry defeated at record depths: 1 = Quarry Crown, each more = a Crown Star.
+    /// Pebble Quarry Heart records from before Hearts moved into each zone's record. Read for migration only.
     var heartsDefeated = 0
     var deepestHeart = 0
     /// Account-wide gear: item id → level, slot → equipped item id, chest tier → count.
@@ -114,6 +144,19 @@ struct SaveData: Codable {
     var equipped: [String: String] = [:]
     var chests: [String: Int] = [:]
     var scrap = 0
+    /// Tips already shown. Missing in saves from before tips existed.
+    var seenTips: [String]?
+    var chestsSinceEpic = 0
+    var chestsSinceLegendary = 0
+    /// Missing in saves from before stats existed.
+    var stats: LifetimeStats?
+    var daily = DailyState()
+    /// Missing in saves from before affixes existed.
+    var affixes: [String: Affix]?
+    var stars: [String: Int] = [:]
+    var ascended: [String] = []
+    var ownedProducts: [String] = []
+    var processedTransactions: [String] = []
 
     init(runs: [String: ZoneRun], records: [String: ZoneRecord], seeds: [String: UInt64], activeZone: ZoneID,
          unlockedZones: [ZoneID], holdUnlocked: Bool, settings: Settings, perks: [String: Int], perkCoins: Int,
@@ -153,6 +196,16 @@ struct SaveData: Codable {
         equipped = try c.decodeIfPresent([String: String].self, forKey: .equipped) ?? [:]
         chests = try c.decodeIfPresent([String: Int].self, forKey: .chests) ?? [:]
         scrap = try c.decodeIfPresent(Int.self, forKey: .scrap) ?? 0
+        seenTips = try c.decodeIfPresent([String].self, forKey: .seenTips)
+        chestsSinceEpic = try c.decodeIfPresent(Int.self, forKey: .chestsSinceEpic) ?? 0
+        chestsSinceLegendary = try c.decodeIfPresent(Int.self, forKey: .chestsSinceLegendary) ?? 0
+        stats = try c.decodeIfPresent(LifetimeStats.self, forKey: .stats)
+        daily = try c.decodeIfPresent(DailyState.self, forKey: .daily) ?? DailyState()
+        affixes = try c.decodeIfPresent([String: Affix].self, forKey: .affixes)
+        stars = try c.decodeIfPresent([String: Int].self, forKey: .stars) ?? [:]
+        ascended = try c.decodeIfPresent([String].self, forKey: .ascended) ?? []
+        ownedProducts = try c.decodeIfPresent([String].self, forKey: .ownedProducts) ?? []
+        processedTransactions = try c.decodeIfPresent([String].self, forKey: .processedTransactions) ?? []
 
         if let runs = try c.decodeIfPresent([String: ZoneRun].self, forKey: .runs) {
             self.runs = runs
@@ -214,7 +267,7 @@ enum AreaGenerator {
                          armor: Config.armor(m, area: area), reward: Config.reward(m, area: area, zone: zone))
         }
 
-        if zone == .quarry && Conquest.isHeartArea(area) {
+        if Conquest.isHeartArea(area) {
             // Boss area: the Heart takes the centre 3 × 3 and no treasure spawns.
             let normal = blocks.filter { !Conquest.heartCells.contains($0.id) }
             let avgHP = normal.map(\.maxHP).reduce(0, +) / Double(max(normal.count, 1))
@@ -233,7 +286,8 @@ enum AreaGenerator {
             return blocks
         }
 
-        if Double.random(in: 0..<1, using: &rng) < treasureChance {
+        // None in the first two areas, so a new player learns plain blocks first.
+        if area >= Config.treasureFromArea, Double.random(in: 0..<1, using: &rng) < treasureChance {
             let avgHP = blocks.map(\.maxHP).reduce(0, +) / Double(blocks.count)
             let avgReward = blocks.map(\.reward).reduce(0, +) / Double(blocks.count)
             let slot = Int.random(in: 0..<blocks.count, using: &rng)
