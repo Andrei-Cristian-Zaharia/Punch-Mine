@@ -5,6 +5,8 @@ import SwiftUI
     @StateObject private var ads = AdCoordinator()
     @StateObject private var feedback = GameFeedback()
     @StateObject private var store = StoreService()
+    @StateObject private var cloud = CloudSync(store: NSUbiquitousKeyValueStore.default, deviceName: MyApp.deviceName,
+                                              available: { MyApp.iCloudAvailable })
 
     init() {
         #if DEBUG
@@ -28,8 +30,11 @@ import SwiftUI
                 .environmentObject(ads)
                 .environmentObject(feedback)
                 .environmentObject(store)
+                .environmentObject(cloud)
                 .onAppear {
                     store.attach(to: game)
+                    // Debug launches with a made-up save never touch the real iCloud backup.
+                    if UserDefaults.standard.string(forKey: "debugSave") == nil { cloud.attach(to: game) }
                     ads.prepare(game: game)
                     feedback.attach(to: game)
                     game.start()
@@ -37,12 +42,34 @@ import SwiftUI
                 .onChange(of: scenePhase) { phase in
                     if phase == .active {
                         game.start()
+                        cloud.check()
                         feedback.sound.appBecameActive()
                     } else {
                         game.stop()
+                        cloud.didSave(force: true)
                         feedback.sound.appWentInactive()
                     }
                 }
         }
+    }
+}
+
+extension MyApp {
+    /// The iCloud entitlement is iPhone/iPad only until the app has a real bundle ID (see the build settings).
+    static var iCloudAvailable: Bool {
+        #if os(iOS)
+        FileManager.default.ubiquityIdentityToken != nil
+        #else
+        false
+        #endif
+    }
+
+    /// Shown on the other device when choosing between saves.
+    static var deviceName: String {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad ? "an iPad" : "an iPhone"
+        #else
+        Host.current().localizedName ?? "a Mac"
+        #endif
     }
 }

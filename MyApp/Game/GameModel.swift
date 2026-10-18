@@ -44,17 +44,17 @@ struct Toast: Equatable, Identifiable {
 
 final class GameModel: ObservableObject {
     // Per-zone state
-    @Published private(set) var runs: [String: ZoneRun]
-    @Published private(set) var records: [String: ZoneRecord]
-    @Published private(set) var activeZone: ZoneID
-    @Published private(set) var unlockedZones: [ZoneID]
+    @Published private(set) var runs: [String: ZoneRun] = [:]
+    @Published private(set) var records: [String: ZoneRecord] = [:]
+    @Published private(set) var activeZone: ZoneID = .quarry
+    @Published private(set) var unlockedZones: [ZoneID] = [.quarry]
 
     // Account-level, survives prestige
-    @Published private(set) var holdUnlocked: Bool
+    @Published private(set) var holdUnlocked = false
     @Published private(set) var perks: [String: Int] = [:]
     @Published private(set) var perkCoins = 0
-    @Published var settings: Settings {
-        didSet { if settings != oldValue { save() } }
+    @Published var settings = Settings() {
+        didSet { if settings != oldValue && !isLoading { save() } }
     }
 
     // Transient presentation state
@@ -147,7 +147,9 @@ final class GameModel: ObservableObject {
     /// Highest HP fraction a block may regrow to: the top of the crack stage it was in.
     private var regrowCap: [Int: Double] = [:]
 
-    private var seeds: [String: UInt64]
+    private var seeds: [String: UInt64] = [:]
+    /// True while a save is being applied, so nothing writes a half-loaded save.
+    private var isLoading = false
     private(set) var clock: Double = 0
 
     // Tips (see Tips.swift)
@@ -182,66 +184,118 @@ final class GameModel: ObservableObject {
         self.analytics = analytics
         if let data = UserDefaults.standard.data(forKey: Self.saveKey),
            let save = try? JSONDecoder().decode(SaveData.self, from: data) {
-            runs = save.runs
-            records = save.records
-            seeds = save.seeds
-            activeZone = save.activeZone
-            unlockedZones = save.unlockedZones
-            holdUnlocked = save.holdUnlocked
-            settings = save.settings
-            perks = save.perks
-            perkCoins = save.perkCoins
-            lastActive = save.lastActive
-            coinRushRemaining = save.coinRushRemaining
-            adLedger = save.adLedger
-            // Before Hearts were per zone, the save held Pebble Quarry's Heart record at the top level.
-            if save.heartsDefeated > 0, var quarry = records[ZoneID.quarry.rawValue], quarry.heartsDefeated == 0 {
-                quarry.heartsDefeated = save.heartsDefeated
-                quarry.deepestHeart = save.deepestHeart
-                records[ZoneID.quarry.rawValue] = quarry
-            }
-            items = save.items
-            equipped = save.equipped
-            chests = save.chests
-            scrap = save.scrap
-            chestsSinceEpic = save.chestsSinceEpic
-            chestsSinceLegendary = save.chestsSinceLegendary
-            stats = save.stats ?? LifetimeStats(legacyFrom: save)
-            daily = save.daily
-            affixes = save.affixes ?? [:]
-            // Items found before affixes existed get one now.
-            if save.affixes == nil {
-                for id in save.items.keys {
-                    if let def = ItemDef.find(id) { affixes[id] = def.heartZone != nil ? Affixes.relicAffix(def) : Affixes.roll(for: def) }
-                }
-            }
-            stars = save.stars
-            ascended = Set(save.ascended)
-            ownedProducts = Set(save.ownedProducts)
-            processedTransactions = Set(save.processedTransactions)
-            // Saves from before tips existed: a player who is already past the basics doesn't need them.
-            if let tips = save.seenTips {
-                seenTips = Set(tips)
-            } else if (save.records[ZoneID.quarry.rawValue]?.bestArea ?? 1) >= 20 {
-                seenTips = Set(Tip.allCases.map(\.rawValue))
-            }
+            load(save)
         } else {
-            var record = ZoneRecord()
-            record.seenIntro = true
-            runs = [ZoneID.quarry.rawValue: ZoneRun()]
-            records = [ZoneID.quarry.rawValue: record]
-            seeds = [ZoneID.quarry.rawValue: UInt64.random(in: 1...UInt64.max)]
-            activeZone = .quarry
-            unlockedZones = [.quarry]
-            holdUnlocked = false
-            settings = Settings()
+            loadFresh()
         }
+        finishLoading()
+    }
+
+    /// Fills every saved field from a save, migrating older formats.
+    private func load(_ save: SaveData) {
+        isLoading = true
+        defer { isLoading = false }
+        runs = save.runs
+        records = save.records
+        seeds = save.seeds
+        activeZone = save.activeZone
+        unlockedZones = save.unlockedZones
+        holdUnlocked = save.holdUnlocked
+        settings = save.settings
+        perks = save.perks
+        perkCoins = save.perkCoins
+        lastActive = save.lastActive
+        coinRushRemaining = save.coinRushRemaining
+        adLedger = save.adLedger
+        // Before Hearts were per zone, the save held Pebble Quarry's Heart record at the top level.
+        if save.heartsDefeated > 0, var quarry = records[ZoneID.quarry.rawValue], quarry.heartsDefeated == 0 {
+            quarry.heartsDefeated = save.heartsDefeated
+            quarry.deepestHeart = save.deepestHeart
+            records[ZoneID.quarry.rawValue] = quarry
+        }
+        items = save.items
+        equipped = save.equipped
+        chests = save.chests
+        scrap = save.scrap
+        chestsSinceEpic = save.chestsSinceEpic
+        chestsSinceLegendary = save.chestsSinceLegendary
+        stats = save.stats ?? LifetimeStats(legacyFrom: save)
+        daily = save.daily
+        affixes = save.affixes ?? [:]
+        // Items found before affixes existed get one now.
+        if save.affixes == nil {
+            for id in save.items.keys {
+                if let def = ItemDef.find(id) { affixes[id] = def.heartZone != nil ? Affixes.relicAffix(def) : Affixes.roll(for: def) }
+            }
+        }
+        stars = save.stars
+        ascended = Set(save.ascended)
+        ownedProducts = Set(save.ownedProducts)
+        processedTransactions = Set(save.processedTransactions)
+        // Saves from before tips existed: a player who is already past the basics doesn't need them.
+        if let tips = save.seenTips {
+            seenTips = Set(tips)
+        } else if (save.records[ZoneID.quarry.rawValue]?.bestArea ?? 1) >= 20 {
+            seenTips = Set(Tip.allCases.map(\.rawValue))
+        }
+    }
+
+    private func loadFresh() {
+        isLoading = true
+        defer { isLoading = false }
+        var record = ZoneRecord()
+        record.seenIntro = true
+        runs = [ZoneID.quarry.rawValue: ZoneRun()]
+        records = [ZoneID.quarry.rawValue: record]
+        seeds = [ZoneID.quarry.rawValue: UInt64.random(in: 1...UInt64.max)]
+        activeZone = .quarry
+        unlockedZones = [.quarry]
+        holdUnlocked = false
+        settings = Settings()
+    }
+
+    private func finishLoading() {
         if runs[activeZone.rawValue] == nil { runs[activeZone.rawValue] = ZoneRun() }
         if seeds[activeZone.rawValue] == nil { seeds[activeZone.rawValue] = UInt64.random(in: 1...UInt64.max) }
         if run.blocks.isEmpty { run.blocks = newBlocks(area: run.area) }
         lastAdPlaySeconds = stats.playSeconds
         // Saves from before Heart relics: hand over the relic of every Heart already defeated.
         for zone in ZoneID.allCases where hasCrown(zone) { grantRelic(for: zone) }
+    }
+
+    // MARK: - Save transfer (iCloud)
+
+    /// Called after every save (iCloud sync listens).
+    var onSaved: (() -> Void)?
+
+    func showToast(_ text: String) { toast = Toast(text: text) }
+
+    /// Replaces this device's progress with another save (from iCloud). Purchases from both are kept,
+    /// and this device's settings stay as they are. Returns false if the data isn't a save.
+    @discardableResult
+    func importSave(_ data: Data) -> Bool {
+        guard let incoming = try? JSONDecoder().decode(SaveData.self, from: data) else { return false }
+        let keepProducts = ownedProducts, keepTransactions = processedTransactions, keepSettings = settings
+        load(incoming)
+        settings = keepSettings
+        ownedProducts.formUnion(keepProducts)
+        processedTransactions.formUnion(keepTransactions)
+        finishLoading()
+        activeTip = nil
+        conquest = nil
+        offlineReport = nil
+        zoneIntro = nil
+        chestReveal = nil
+        floaters = []
+        feverRemaining = 0
+        minerTargets = []
+        banner = nil
+        treasureOffer = nil
+        areaGeneration += 1
+        resetTransientInput()
+        save()
+        analytics.log("save_imported", [:])
+        return true
     }
 
     // MARK: - Active zone access
@@ -1538,8 +1592,17 @@ final class GameModel: ObservableObject {
     // MARK: - Saving
 
     func save() {
+        guard !isLoading else { return }
         sinceSave = 0
         lastActive = Date()
+        if let encoded = encodedSaveWithoutSaving() {
+            UserDefaults.standard.set(encoded, forKey: Self.saveKey)
+        }
+        onSaved?()
+    }
+
+    /// The current state encoded exactly as `save()` writes it, without writing anything.
+    func encodedSaveWithoutSaving() -> Data? {
         let data = SaveData(runs: runs, records: records, seeds: seeds, activeZone: activeZone,
                             unlockedZones: unlockedZones, holdUnlocked: holdUnlocked, settings: settings,
                             perks: perks, perkCoins: perkCoins, lastActive: lastActive,
@@ -1562,9 +1625,7 @@ final class GameModel: ObservableObject {
         withHearts.ascended = ascended.sorted()
         withHearts.ownedProducts = ownedProducts.sorted()
         withHearts.processedTransactions = processedTransactions.sorted()
-        if let encoded = try? JSONEncoder().encode(withHearts) {
-            UserDefaults.standard.set(encoded, forKey: Self.saveKey)
-        }
+        return try? JSONEncoder().encode(withHearts)
     }
 
     /// Starts over. With `keepItems`, gear, item levels, equipped slots, unopened chests and Scrap carry over.

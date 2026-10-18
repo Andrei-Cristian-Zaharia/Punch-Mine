@@ -22,4 +22,5 @@ struct ContentView: View {
         .environmentObject(AdCoordinator())
         .environmentObject(GameFeedback())
         .environmentObject(StoreService())
+        .environmentObject(CloudSync(store: MemoryCloudStore()))
 }

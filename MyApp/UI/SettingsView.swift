@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var game: GameModel
     @EnvironmentObject private var ads: AdCoordinator
+    @EnvironmentObject private var cloud: CloudSync
     @Environment(\.dismiss) private var dismiss
     @State private var confirmReset = false
 
@@ -16,6 +17,15 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Color.clear)
                 progressSection
+                Section {
+                    Toggle(isOn: $game.settings.iCloudSync) { SettingLabel("iCloud backup", "icloud.fill", Theme.tide) }
+                        .onChange(of: game.settings.iCloudSync) { _ in cloud.settingChanged() }
+                } header: {
+                    Text("Save")
+                } footer: {
+                    Text(cloud.statusText + ". A new or reinstalled device picks up where you left off.")
+                }
+                .listRowBackground(Theme.card)
                 soundSection
                 gameplaySection
                 feelSection

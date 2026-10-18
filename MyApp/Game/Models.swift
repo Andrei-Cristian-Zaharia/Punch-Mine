@@ -100,6 +100,8 @@ struct Settings: Codable, Equatable {
     /// 0…1.
     var effectsVolume = 1.0
     var musicVolume = 1.0
+    /// Back up progress to iCloud and restore it on other devices.
+    var iCloudSync = true
 
     init() {}
 
@@ -119,6 +121,7 @@ struct Settings: Codable, Equatable {
         autoPrestige = try c.decodeIfPresent(Bool.self, forKey: .autoPrestige) ?? d.autoPrestige
         effectsVolume = try c.decodeIfPresent(Double.self, forKey: .effectsVolume) ?? d.effectsVolume
         musicVolume = try c.decodeIfPresent(Double.self, forKey: .musicVolume) ?? d.musicVolume
+        iCloudSync = try c.decodeIfPresent(Bool.self, forKey: .iCloudSync) ?? d.iCloudSync
     }
 }
 

@@ -3,6 +3,7 @@ import SwiftUI
 struct MineView: View {
     @EnvironmentObject private var game: GameModel
     @EnvironmentObject private var store: StoreService
+    @EnvironmentObject private var cloud: CloudSync
     @EnvironmentObject private var ads: AdCoordinator
     @State private var showSettings = false
     @State private var showPerks = false
@@ -60,6 +61,7 @@ struct MineView: View {
         .sheet(isPresented: $showItems) { ItemsView() }
         .sheet(isPresented: $showDaily) { DailyView() }
         .sheet(isPresented: $showStore) { StoreView() }
+        .sheet(item: $cloud.conflict) { conflict in CloudChoiceView(conflict: conflict) }
         .sheet(isPresented: $showPlaytest) { NavigationStack { PlaytestView() } }
         .sheet(item: $game.zoneIntro) { zone in ZoneIntroView(zone: zone) }
         .sheet(item: $game.conquest) { event in ConquestView(event: event) }
@@ -102,6 +104,17 @@ struct MineView: View {
             case "items", "itemdetail": showItems = true
             case "daily": showDaily = true
             case "store": showStore = true
+            case "cloudchoice":
+                if let data = game.encodedSaveWithoutSaving(), let local = SaveSummary(data: data) {
+                    var other = local
+                    other.playSeconds = local.playSeconds + 26_000
+                    other.prestiges = local.prestiges + 14
+                    other.hearts = 2
+                    other.zones = 3
+                    other.bestAreas["quarry"] = 118
+                    cloud.conflict = CloudConflict(local: local, cloud: other, cloudSavedAt: Date().addingTimeInterval(-7_200),
+                                                   cloudDeviceName: "an iPad")
+                }
             case "storebuy":
                 showStore = true
                 Task {
