@@ -19,7 +19,7 @@ func live(_ g: GameModel, _ s: Double) { g.start(); RunLoop.main.run(until: Date
     static func main() {
         UserDefaults.standard.removeObject(forKey: key)
         let g = model()
-        check(ZoneID.allCases.count == 4 && ZoneID.magma.tools.count == 9, "4 zones; Magma has 9 tools")
+        check(ZoneID.allCases.count == 5 && ZoneID.magma.tools.count == 9, "5 zones; Magma has 9 tools")
         check(!g.unlockAreaMet(.magma), "Magma needs Crystal Caverns first")
         grind(g, to: 30, buy: true); earn(g, ZoneID.caverns.unlock!.costs[0].amount); g.unlockZone(.caverns)
         check(g.zone == .caverns, "in Zone 2")

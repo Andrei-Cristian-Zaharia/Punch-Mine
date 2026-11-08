@@ -7,3 +7,6 @@ xcuserdata/
 DerivedData/
 build/
 *.xcresult
+
+# Studio Export package (Tools/studio_export/make_export.sh)
+export/

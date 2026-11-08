@@ -22,7 +22,7 @@ func clearWeak(_ g: GameModel) { var n = 0; let a = g.run.area; while g.run.area
 @main struct Main {
     static func main() {
         let all = ItemDef.all
-        check(all.count == 42 && Set(all.map(\.id)).count == 42, "42 unique items (\(all.count))")
+        check(all.count == 61 && Set(all.map(\.id)).count == 61, "61 unique items (\(all.count))")
         check(ItemSlot.allCases.allSatisfy { s in all.filter { $0.slot == s }.count >= 6 }, "every slot has at least 6 items")
         check(Rarity.allCases.allSatisfy { r in all.contains { $0.rarity == r } } && Set(all.map(\.effect)).count >= 20, "all 4 rarities, 20+ distinct effects (\(Set(all.map(\.effect)).count))")
         check(ChestTier.allCases.allSatisfy { abs($0.odds.reduce(0, +) - 1) < 1e-9 }, "chest odds add up to 100%")
@@ -76,8 +76,8 @@ func clearWeak(_ g: GameModel) { var n = 0; let a = g.run.area; while g.run.area
         saveAt(area: 20, items: ["bandolier": 1, "hourglass": 1, "crownOfEmbers": 1],
                equipped: ["belt": "bandolier", "charm": "hourglass", "helmet": "crownOfEmbers"])
         g = model()
-        check(abs(g.gadgetCooldown(.dynamite) - 45 * 0.85) < 1e-9 && abs(g.offlineEfficiency - 0.30) < 1e-9 && abs(g.feverMultiplier - 2.3) < 1e-9,
-              "Bandolier −15% cooldown, Hourglass 30% offline, Crown of Embers Fever ×2.3")
+        check(abs(g.gadgetCooldown(.dynamite) - 45 * 0.85) < 1e-9 && abs(g.offlineEfficiency - (Offline.baseEfficiency + 0.05)) < 1e-9 && abs(g.feverMultiplier - 2.3) < 1e-9,
+              "Bandolier −15% cooldown, Hourglass +5 points offline, Crown of Embers Fever ×2.3")
 
         // New upgrades
         saveAt(area: 40, levels: ["rhythm": 9])

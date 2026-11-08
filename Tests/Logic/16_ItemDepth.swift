@@ -28,7 +28,8 @@ func day(_ s: String) -> Date {
         check(ItemSlot.allCases.allSatisfy { s in ItemDef.chestPool.filter { $0.slot == s }.count >= 6 },
               "every slot has 6+ items that chests can give")
         check(all.filter { $0.nod != nil }.count >= 15, "15+ items nod to other games")
-        check(ItemSet.allCases.allSatisfy { set in Set(set.pieces.map(\.slot)).count == 4 }, "each set has one piece per slot")
+        check(ItemSet.allCases.allSatisfy { set in Set(set.pieces.map(\.slot)).count == set.pieces.count && set.pieces.count >= 3 },
+              "each set has 3–4 pieces, never two in one slot")
         check(ZoneID.allCases.allSatisfy { ItemDef.relic(for: $0)?.rarity == .mythic } && !ItemDef.chestPool.contains { $0.rarity == .mythic },
               "one Mythic relic per zone, never in chests")
 

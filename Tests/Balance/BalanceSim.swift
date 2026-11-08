@@ -141,6 +141,12 @@ var reachTimes: [Int: Double] = [:]
 var tapDebt = 0.0
 var tipLog: [(Tip, Double)] = []
 var nextShop = 0.0
+// Away-earnings report: what coming back after a break pays, against active play.
+struct AwaySample { let time: Double; let area: Int; let activeRate: Double; let minerRate: Double; let efficiency: Double; let capHours: Double }
+var awaySamples: [AwaySample] = []
+let awayCheckpoints: [Double] = [600, 1_800, 3_600, 7_200, 14_400, 28_800, 43_200].filter { $0 <= hours * 3600 }
+var coinTrail: [(Double, Double)] = []
+func totalCoins() -> Double { g.stats.coins.values.reduce(0, +) }
 
 let limit = hours * 3600
 while time < limit {
@@ -154,6 +160,16 @@ while time < limit {
     time += dt
     if let tip = g.activeTip, tipLog.last?.0 != tip { tipLog.append((tip, time)) }
 
+    if coinTrail.isEmpty || time - coinTrail.last!.0 >= 10 {
+        coinTrail.append((time, totalCoins()))
+        coinTrail.removeAll { time - $0.0 > 300 }
+    }
+    if let next = awayCheckpoints.first(where: { cp in time >= cp && !awaySamples.contains { $0.time == cp } }), let first = coinTrail.first {
+        let rate = (totalCoins() - first.1) / max(1, time - first.0)
+        awaySamples.append(AwaySample(time: next, area: g.run.area, activeRate: rate, minerRate: g.minerCoinsPerSecond(for: g.zone),
+                                      efficiency: g.offlineEfficiency, capHours: g.offlineCapSeconds / 3600))
+    }
+
     if time >= nextShop {
         nextShop = time + 0.5
         shop()
@@ -163,7 +179,7 @@ while time < limit {
             mark("Zone 2 affordable", target: "30–40 min"); g.unlockZone(.caverns); g.zoneIntro = nil
             if multi { runAreaHigh = g.run.area; lastProgress = time } else { g.switchZone(to: .quarry) }
         }
-        for z in [ZoneID.magma, .ruins] where multi && g.canUnlock(z) {
+        for z in [ZoneID.magma, .ruins, .crypt] where multi && g.canUnlock(z) {
             mark("Zone \(z.number) affordable"); g.unlockZone(z); g.zoneIntro = nil
             runAreaHigh = g.run.area; lastProgress = time
         }
@@ -243,6 +259,17 @@ for r in runs.prefix(12) + (runs.count > 12 ? [runs.last!] : []) {
 }
 let spent = Perk.allCases.map { p in (0..<g.level(p)).map { p.cost(level: $0) }.reduce(0, +) }.reduce(0, +)
 let total = Perk.allCases.map(\.totalCost).reduce(0, +)
+print("\nAway earnings (what a break pays when you come back)")
+print("  time      area  active/s   miners/s  rate  cap   2 h away   = active play   old 25% rate")
+for a in awaySamples {
+    let away = a.minerRate * a.efficiency * min(2, a.capHours) * 3600
+    let old = a.minerRate * 0.25 * 2 * 3600
+    let mins = a.activeRate > 0 ? away / a.activeRate / 60 : 0
+    let oldMins = a.activeRate > 0 ? old / a.activeRate / 60 : 0
+    print(String(format: "  %-9@ %-5d %-10@ %-10@ %3d%%  %.1fh  %-10@ %5.1f min       %5.1f min",
+                 clock(a.time) as NSString, a.area, NumberText.format(a.activeRate) as NSString, NumberText.format(a.minerRate) as NSString,
+                 Int((a.efficiency * 100).rounded()), a.capHours, NumberText.format(away) as NSString, mins, oldMins))
+}
 print("\nAscension: " + StarPerk.allCases.map { "\($0.name) \(g.starLevel($0))" }.joined(separator: ", ")
       + " · " + AscensionPerk.allCases.filter(g.owns).map(\.name).joined(separator: ", "))
 print("Perks: \(spent) of \(total) PC spent (\(Int(Double(spent) / Double(total) * 100))%), \(g.perkCoins) unspent")

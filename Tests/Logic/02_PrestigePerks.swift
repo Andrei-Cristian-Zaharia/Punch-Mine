@@ -53,7 +53,7 @@ func grind(_ g: GameModel, to area: Int) {
         grind(g, to: 5)
         let cps = g.minerCoinsPerSecond
         let r = g.earnings(for: .quarry, elapsed: 3 * 3600)
-        check(cps > 0 && r != nil && abs(r!.coins - (cps * 0.25 * 7200).rounded(.down)) < 1, "offline caps at 2h: \(r?.coins ?? -1) at \(cps)/s")
+        check(cps > 0 && r != nil && abs(r!.coins - (cps * Offline.baseEfficiency * 7200).rounded(.down)) < 1, "offline caps at 2h: \(r?.coins ?? -1) at \(cps)/s")
         check(g.earnings(for: .quarry, elapsed: 30) == nil && g.earnings(for: .quarry, elapsed: -500) == nil, "no offline under 60 s or backwards clock")
         // Persistence incl. new fields
         g.save()

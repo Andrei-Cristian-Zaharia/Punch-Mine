@@ -106,6 +106,21 @@
       "productID": "punchmine.chests.golden3",
       "referenceName": "3 Golden Chests",
       "type": "Consumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "internalID": "6740000007",
+      "localizations": [
+        {
+          "description": "Unlocks the premium reward track of the current event.",
+          "displayName": "Event Pass",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "punchmine.eventpass",
+      "referenceName": "Event Pass",
+      "type": "Consumable"
     }
   ],
   "settings": {

@@ -52,7 +52,7 @@ func live(_ g: GameModel, _ s: Double) { g.start(); RunLoop.main.run(until: Date
         saveAt(area: 3, perks: ["brutalCrits": 3, "overtime": 2, "gadgeteer": 4, "toolsmith": 5, "doubleShift": 2, "expressElevator": 3])
         g = model()
         check(abs(g.critMultiplier - 2.6) < 1e-9, "Brutal Crits 3: crit ×2.6")
-        check(abs(g.offlineEfficiency - 0.35) < 1e-9, "Overtime 2: 35% offline rate")
+        check(abs(g.offlineEfficiency - (Offline.baseEfficiency + 0.10)) < 1e-9, "Overtime 2: +10 points offline rate")
         check(abs(g.gadgetCooldown(.dynamite) - 45 * 0.8) < 1e-9, "Gadgeteer 4: −20% gadget cooldown")
         check(g.toolCost(g.zone.tools[1]) == 3_600, "Toolsmith 5: Pickaxe Gauntlet 6,000 → 3,600")
         check(abs(g.minerInterval(.digger, run: g.run) - 0.8) < 1e-9, "Double Shift 2: diggers swing every 0.8 s")

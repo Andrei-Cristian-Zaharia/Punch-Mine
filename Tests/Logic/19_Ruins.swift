@@ -36,7 +36,7 @@ func run(_ g: GameModel, _ seconds: Double) { for _ in 0..<Int(seconds * 20) { g
     static func main() {
         // Zone data
         let z = ZoneID.ruins
-        check(ZoneID.allCases.count == 4 && z.number == 4 && z.tools.count == 9 && z.prestigeMultiplier == 4, "Zone 4: 9 tools, ×4 Perk Coins")
+        check(ZoneID.allCases.count >= 4 && z.number == 4 && z.tools.count == 9 && z.prestigeMultiplier == 4, "Zone 4: 9 tools, ×4 Perk Coins")
         check(z.unlock?.previous == .magma && z.unlock?.clearArea == 25
               && z.unlock?.costs.map(\.amount) == [600_000, 2_000_000], "unlock: Magma area 25, 600K Embers + 2M Shards")
         check((1...100).allSatisfy { a in z.mix(area: a).map(\.1).reduce(0, +) == 30 }, "every area mix fills 30 cells")

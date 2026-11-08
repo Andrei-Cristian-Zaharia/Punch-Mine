@@ -1,0 +1,12 @@
+{
+  "images": [
+    {
+      "filename": "product-starterpack.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

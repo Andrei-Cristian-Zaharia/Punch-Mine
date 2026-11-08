@@ -1,13 +1,13 @@
 #!/bin/zsh
-# Renders the app icon from MyApp/UI/Logo.swift (LogoMark) into the asset catalog.
+# Renders the app icon from Punch Mine/UI/Logo.swift (LogoMark) into the asset catalog.
 #   Tools/make-app-icon.sh
 set -eu
 ROOT="${0:A:h:h}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-SET="$ROOT/MyApp/Assets.xcassets/AppIcon.appiconset"
+SET="$ROOT/Punch Mine/Assets.xcassets/AppIcon.appiconset"
 mkdir -p "$SET" "$WORK/src"
-cp "$ROOT/MyApp/UI/Logo.swift" "$WORK/src/Logo.swift"
+cp "$ROOT/Punch Mine/UI/Logo.swift" "$WORK/src/Logo.swift"
 # Previews don't build outside Xcode.
 sed -i '' '/^#Preview {/,$d' "$WORK/src/Logo.swift"
 cat > "$WORK/src/main.swift" <<'SWIFT'

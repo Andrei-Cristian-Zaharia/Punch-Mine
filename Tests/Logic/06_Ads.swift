@@ -13,7 +13,7 @@ func model() -> GameModel { GameModel(analytics: Analytics(sinks: [MemoryAnalyti
         g.adWillShow(.coinRush)
         check(g.isPaused, "game pauses while an ad shows")
         g.adDidFinish(.coinRush, rewarded: true)
-        check(!g.isPaused && g.coinRushRemaining == 600, "Coin Rush grants 10 minutes")
+        check(!g.isPaused && g.coinRushRemaining == 120, "Coin Rush grants 2 minutes")
         let target = g.run.blocks.firstIndex { !$0.isBroken && !$0.isTreasure }!
         let reward = g.run.blocks[target].reward
         let before = g.run.coins
@@ -21,12 +21,12 @@ func model() -> GameModel { GameModel(analytics: Analytics(sinks: [MemoryAnalyti
         check(g.run.coins - before == reward * 2, "block reward doubled during Coin Rush (\(reward) → \(g.run.coins - before))")
         // Another ad adds time, multiplier stays ×2
         g.adWillShow(.coinRush); g.adDidFinish(.coinRush, rewarded: true)
-        check(g.coinRushRemaining == 1200, "second Coin Rush extends to 20 min, still ×2")
-        // Skipped ad: counted, no reward
+        check(g.coinRushRemaining == 240, "second Coin Rush extends to 4 min, still ×2")
+        // Skipped or failed ad: no reward, and it doesn't use up a daily slot
         g.adWillShow(.coinRush); g.adDidFinish(.coinRush, rewarded: false)
-        check(g.coinRushRemaining == 1200 && g.adLedger.count(.coinRush) == 3, "skipped ad gives nothing but counts")
+        check(g.coinRushRemaining == 240 && g.adLedger.count(.coinRush) == 2, "skipped ad gives nothing and isn't counted")
         // Daily limit of 6 Coin Rush
-        for _ in 0..<3 { g.adWillShow(.coinRush); g.adDidFinish(.coinRush, rewarded: true) }
+        for _ in 0..<4 { g.adWillShow(.coinRush); g.adDidFinish(.coinRush, rewarded: true) }
         check(!g.canWatch(.coinRush) && g.adsLeftToday(.coinRush) == 0, "Coin Rush stops after 6 a day")
         // Rollover
         var ledger = g.adLedger
@@ -53,13 +53,13 @@ func model() -> GameModel { GameModel(analytics: Analytics(sinks: [MemoryAnalyti
             g.adDidFinish(.treasureDouble, rewarded: true)
             check(g.run.coins - c0 == offer.coins, "treasure double adds the same amount again (\(offer.coins))")
         }
-        // Total cap 15
+        // Total daily cap
         UserDefaults.standard.removeObject(forKey: key)
         let h = model(); h.adsAvailable = true
-        for _ in 0..<6 { h.adWillShow(.coinRush); h.adDidFinish(.coinRush, rewarded: false) }
+        for _ in 0..<6 { h.adWillShow(.coinRush); h.adDidFinish(.coinRush, rewarded: true) }
         var l = h.adLedger
-        for _ in 0..<9 { l.record(.offlineDouble) }
-        check(l.total == 15, "ledger counts toward the 15-a-day cap")
+        for _ in 0..<(AdRules.dailyCap - 6) { l.record(.offlineDouble) }
+        check(l.total == AdRules.dailyCap, "ledger counts toward the \(AdRules.dailyCap)-a-day cap")
         // Persistence
         h.save()
         let h2 = model()

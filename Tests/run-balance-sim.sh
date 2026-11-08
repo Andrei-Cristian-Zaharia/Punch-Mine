@@ -9,6 +9,6 @@ mkdir -p "$WORK/src"; cp "$ROOT/Tests/Balance/BalanceSim.swift" "$WORK/src/main.
 # A command-line tool's UserDefaults domain is its executable name, so each run gets its own name:
 # parallel sims would otherwise share (and overwrite) one save.
 BIN="$WORK/balance-sim-$$-$RANDOM"
-xcrun swiftc -O -swift-version 5 -default-isolation MainActor -o "$BIN" "$ROOT"/MyApp/Game/*.swift "$WORK/src/main.swift"
+xcrun swiftc -O -swift-version 5 -default-isolation MainActor -o "$BIN" "$ROOT"/"Punch Mine"/Game/*.swift "$WORK/src/main.swift"
 "$BIN" "$@"
 defaults delete "${BIN:t}" >/dev/null 2>&1 || true

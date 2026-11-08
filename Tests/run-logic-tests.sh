@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Headless game-logic tests. Each suite in Tests/Logic is compiled together with MyApp/Game
+# Headless game-logic tests. Each suite in Tests/Logic is compiled together with Punch Mine/Game
 # and run as its own executable. Exits non-zero if any check fails or a suite doesn't build.
 #   Tests/run-logic-tests.sh            run every suite
 #   Tests/run-logic-tests.sh 10_Items   run suites whose name contains the argument
@@ -15,7 +15,7 @@ for suite in "$ROOT"/Tests/Logic/*.swift; do
     source="$suite"
     if ! grep -q '^@main' "$suite"; then mkdir -p "$WORK/src/$name"; source="$WORK/src/$name/main.swift"; cp "$suite" "$source"; fi
     if ! xcrun swiftc -swift-version 5 -default-isolation MainActor -o "$WORK/$name" \
-            "$ROOT"/MyApp/Game/*.swift "$source" 2> "$WORK/$name.build.txt"; then
+            "$ROOT"/"Punch Mine"/Game/*.swift "$source" 2> "$WORK/$name.build.txt"; then
         echo "BUILD FAILED $name"; grep error: "$WORK/$name.build.txt"; broken=$((broken + 1)); continue
     fi
     output="$(cd "$WORK" && "./$name" 2>&1)"; code=$?
