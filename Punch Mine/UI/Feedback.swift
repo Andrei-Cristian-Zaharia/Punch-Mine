@@ -36,8 +36,17 @@ final class GameFeedback: ObservableObject {
 
     private weak var game: GameModel?
     private var nextDebrisID = 0
-    private var lastShake = Date.distantPast
+    /// When the current shake started.
+    private(set) var lastShake = Date.distantPast
     private var cancellables: Set<AnyCancellable> = []
+
+    /// Wall time, or Director capture's virtual clock (Debug only), so effects keep their length in a recording.
+    private var now: Date {
+        #if DEBUG
+        if Director.shared.isCapturing { return Director.shared.clock.date }
+        #endif
+        return Date()
+    }
 
     func attach(to game: GameModel) {
         guard self.game !== game else { return }
@@ -150,7 +159,7 @@ final class GameFeedback: ObservableObject {
 
     private func shake(_ amount: CGFloat) {
         guard motionAllowed, game?.settings.screenShake == true else { return }
-        let now = Date()
+        let now = self.now
         // A new shake during one in progress never makes it weaker.
         shakeAmount = now.timeIntervalSince(lastShake) < 0.35 ? max(shakeAmount, amount) : amount
         lastShake = now
@@ -167,7 +176,7 @@ final class GameFeedback: ObservableObject {
         let style = game?.equippedCosmetic(.burst)
         if let style { colors = style.colors.map { Color(hex: $0) } + (treasure ? [Theme.gold] : []) }
         debris.append(DebrisBurst(id: nextDebrisID, index: ore == .heart ? Conquest.heartIndex : index, colors: colors,
-                                  born: Date(), scale: ore == .heart ? 3 : 1, sparkle: treasure || ore == .heart, shape: style?.shape))
+                                  born: now, scale: ore == .heart ? 3 : 1, sparkle: treasure || ore == .heart, shape: style?.shape))
         if debris.count > 14 { debris.removeFirst(debris.count - 14) }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.debrisLife + 0.05))
@@ -178,19 +187,19 @@ final class GameFeedback: ObservableObject {
     private func impact(at index: Int, crit: Bool) {
         guard motionAllowed, let skin = game?.equippedCosmetic(.fist) else { return }
         nextDebrisID += 1
-        impacts.append(ImpactMark(id: nextDebrisID, index: index, born: Date(), shape: skin.shape,
+        impacts.append(ImpactMark(id: nextDebrisID, index: index, born: now, shape: skin.shape,
                                   colors: skin.colors.map { Color(hex: $0) }))
         if impacts.count > 8 { impacts.removeFirst(impacts.count - 8) }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.impactLife + 0.05))
             guard let self else { return }
-            let now = Date()
+            let now = self.now
             self.impacts.removeAll { now.timeIntervalSince($0.born) > Self.impactLife }
         }
     }
 
     private func pruneDebris() {
-        let now = Date()
+        let now = self.now
         if debris.contains(where: { now.timeIntervalSince($0.born) > Self.debrisLife }) {
             debris.removeAll { now.timeIntervalSince($0.born) > Self.debrisLife }
         }
@@ -222,7 +231,19 @@ struct ShakeHost<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the shake's progress comes from the virtual clock (0.35 s per shake).
+            DirectorFrame { date in
+                let progress = date.timeIntervalSince(fx.lastShake) / 0.35
+                content.modifier(ShakeEffect(amount: fx.shakeAmount, travel: progress >= 0 && progress < 1 ? CGFloat(1 + progress) : 0))
+            }
+        } else {
+            content.modifier(ShakeEffect(amount: fx.shakeAmount, travel: fx.shakeTravel))
+        }
+        #else
         content.modifier(ShakeEffect(amount: fx.shakeAmount, travel: fx.shakeTravel))
+        #endif
     }
 }
 
@@ -234,18 +255,33 @@ struct DebrisLayer: View {
 
     var body: some View {
         if !fx.debris.isEmpty || !fx.impacts.isEmpty {
-            TimelineView(.animation) { timeline in
-                Canvas { context, _ in
-                    for burst in fx.debris {
-                        draw(burst, in: &context, at: timeline.date)
-                    }
-                    for mark in fx.impacts {
-                        draw(mark, in: &context, at: timeline.date)
-                    }
-                }
+            frames
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder private var frames: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: chunks fly on the virtual clock.
+            DirectorFrame { date in canvas(at: date) }
+        } else {
+            TimelineView(.animation) { timeline in canvas(at: timeline.date) }
+        }
+        #else
+        TimelineView(.animation) { timeline in canvas(at: timeline.date) }
+        #endif
+    }
+
+    private func canvas(at date: Date) -> some View {
+        Canvas { context, _ in
+            for burst in fx.debris {
+                draw(burst, in: &context, at: date)
             }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            for mark in fx.impacts {
+                draw(mark, in: &context, at: date)
+            }
         }
     }
 

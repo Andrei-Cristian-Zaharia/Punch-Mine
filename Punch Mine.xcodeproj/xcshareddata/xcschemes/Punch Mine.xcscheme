@@ -19,6 +19,12 @@
       <CommandLineArguments>
          <CommandLineArgument argument = "-devTools YES" isEnabled = "NO">
          </CommandLineArgument>
+         <CommandLineArgument argument = "-scenario quarryMining" isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument argument = "-scenarioSeed 1234" isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument argument = "-scenarioDuration 30" isEnabled = "NO">
+         </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>
    <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">

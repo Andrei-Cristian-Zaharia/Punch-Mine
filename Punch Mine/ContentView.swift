@@ -8,6 +8,19 @@ struct ContentView: View {
     @EnvironmentObject private var ads: AdCoordinator
 
     var body: some View {
+        #if DEBUG
+        // Director mode (`-scenario <name>`): straight into the scenario, see Director/DirectorMode.swift.
+        if Director.shared.isActive {
+            DirectorRoot()
+        } else {
+            mine
+        }
+        #else
+        mine
+        #endif
+    }
+
+    private var mine: some View {
         MineView()
             .overlay { if Self.showSplash { LaunchSplash() } }
             .preferredColorScheme(.dark)

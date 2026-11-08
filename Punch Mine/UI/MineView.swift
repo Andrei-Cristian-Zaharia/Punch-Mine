@@ -76,8 +76,10 @@ struct MineView: View {
         .sheet(item: $cloud.conflict) { conflict in CloudChoiceView(conflict: conflict) }
         // These come from the game itself; they wait until any open menu has closed, or they would never show.
         .sheet(item: menuOpen ? .constant(nil) : $game.zoneIntro) { zone in ZoneIntroView(zone: zone) }
-        .sheet(item: menuOpen ? .constant(nil) : $game.conquest) { event in ConquestView(event: event) }
+        .sheet(item: conquestSheet) { event in ConquestView(event: event) }
         #if DEBUG
+        // Director mode shows the crown card over the mine (a sheet would slide in on wall time).
+        .overlay { if Director.shared.isActive, let event = game.conquest { DirectorConquestCard(event: event) } }
         .sheet(isPresented: $showPlaytest) { NavigationStack { PlaytestView() } }
         .sheet(isPresented: $showOreGallery) { OreGalleryView() }
         .sheet(isPresented: $showItemArt) { ItemArtGalleryView() }
@@ -105,6 +107,8 @@ struct MineView: View {
             }
             drawer = prefersMinimized ? .minimized : .collapsed
             #if DEBUG
+            // Director mode: the drawer minimized, so the grid is as big as it gets on a 9:16 screen.
+            if Director.shared.isActive { drawer = .minimized }
             // Test helper: `-debugDate 2027-03-25` runs events as if it were that day (UTC noon).
             if let text = UserDefaults.standard.string(forKey: "debugDate") {
                 let f = DateFormatter()
@@ -202,7 +206,7 @@ struct MineView: View {
     /// Debug screenshot launches (`-debugScreen …`) skip pop-ups. Always false in App Store builds.
     static var screenshotLaunch: Bool {
         #if DEBUG
-        UserDefaults.standard.string(forKey: "debugScreen") != nil
+        UserDefaults.standard.string(forKey: "debugScreen") != nil || Director.shared.isActive
         #else
         false
         #endif
@@ -219,6 +223,13 @@ struct MineView: View {
         #endif
         dailyPromptDay = today
         showDaily = true
+    }
+
+    private var conquestSheet: Binding<ConquestEvent?> {
+        #if DEBUG
+        if Director.shared.isActive { return .constant(nil) }
+        #endif
+        return menuOpen ? .constant(nil) : $game.conquest
     }
 
     /// A full-screen menu hides the mine, so the game can update less often.
@@ -668,20 +679,48 @@ private struct AreaBannerView: View {
     @State private var visible: AreaBanner?
 
     var body: some View {
-        ZStack {
-            if let banner = visible {
-                VStack(spacing: 4) {
-                    Text("Area \(banner.area) cleared!")
-                        .font(Theme.display(26))
-                    HStack(spacing: 6) {
-                        CurrencyIcon(zone: game.zone, size: 18)
-                        Text("+" + NumberText.format(banner.bonus, short: game.settings.shortNumbers) + " clear bonus")
-                            .font(Theme.body(15, .heavy))
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the banner pops in and fades out on the virtual clock.
+            DirectorFrame { date in
+                let age = Director.shared.seconds(date) - (Director.shared.bannerAt ?? -100)
+                ZStack {
+                    if let banner = game.banner, age < 1.7 {
+                        card(banner)
+                            .scaleEffect(CGFloat(Director.pop(age, from: 0.5)))
+                            .opacity(Director.ease(age, 0.12) * (1 - Director.ease(age - 1.4, 0.3)))
                     }
                 }
-                .padding(.horizontal, 20).padding(.vertical, 14)
-                .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 16))
-                .transition(game.settings.reducedMotion ? .opacity : .scale.combined(with: .opacity))
+                .frame(width: gridSize.width, height: gridSize.height)
+                .allowsHitTesting(false)
+            }
+        } else {
+            live
+        }
+        #else
+        live
+        #endif
+    }
+
+    private func card(_ banner: AreaBanner) -> some View {
+        VStack(spacing: 4) {
+            Text("Area \(banner.area) cleared!")
+                .font(Theme.display(26))
+            HStack(spacing: 6) {
+                CurrencyIcon(zone: game.zone, size: 18)
+                Text("+" + NumberText.format(banner.bonus, short: game.settings.shortNumbers) + " clear bonus")
+                    .font(Theme.body(15, .heavy))
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 14)
+        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var live: some View {
+        ZStack {
+            if let banner = visible {
+                card(banner)
+                    .transition(game.settings.reducedMotion ? .opacity : .scale.combined(with: .opacity))
             }
         }
         .frame(width: gridSize.width, height: gridSize.height)
@@ -709,29 +748,8 @@ private struct TideOverlay: View {
         ZStack(alignment: .top) {
             GeometryReader { geo in
                 let level = high ? 1 : 0.12 * charge
-                // Paused behind menus: the wave would redraw at full frame rate under a sheet.
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: reducedMotion || covered)) { timeline in
-                    Canvas { context, size in
-                        let t = reducedMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                        let top = size.height * (1 - level)
-                        var water = Path()
-                        water.move(to: CGPoint(x: 0, y: size.height))
-                        for x in stride(from: 0.0, through: size.width, by: 6) {
-                            let y = top + 4 * sin(x / 28 + t * 2) + 2 * sin(x / 11 - t * 3)
-                            water.addLine(to: CGPoint(x: x, y: y))
-                        }
-                        water.addLine(to: CGPoint(x: size.width, y: size.height))
-                        water.closeSubpath()
-                        context.fill(water, with: .color(Theme.tide.opacity(high ? 0.22 : 0.3)))
-                        var crest = Path()
-                        for x in stride(from: 0.0, through: size.width, by: 6) {
-                            let y = top + 4 * sin(x / 28 + t * 2) + 2 * sin(x / 11 - t * 3)
-                            if x == 0 { crest.move(to: CGPoint(x: x, y: y)) } else { crest.addLine(to: CGPoint(x: x, y: y)) }
-                        }
-                        context.stroke(crest, with: .color(.white.opacity(high ? 0.35 : 0.5)), lineWidth: 2)
-                    }
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
+                waves(level: level)
+                    .frame(width: geo.size.width, height: geo.size.height)
             }
             .animation(reducedMotion ? nil : .easeInOut(duration: 1.2), value: high)
 
@@ -750,6 +768,50 @@ private struct TideOverlay: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(high ? "High tide, \(Int(remaining.rounded(.up))) seconds left. Blocks pay more, hits are weaker."
                                  : "High tide in \(Int((Tide.interval * (1 - charge)).rounded(.up))) seconds")
+    }
+
+    @ViewBuilder private func waves(level: Double) -> some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the waves move, and the water rises, on the virtual clock.
+            DirectorFrame { date in
+                water(level: Director.shared.tideLevel(level, high: high, at: date),
+                      t: reducedMotion ? 0 : date.timeIntervalSinceReferenceDate)
+            }
+        } else {
+            liveWaves(level: level)
+        }
+        #else
+        liveWaves(level: level)
+        #endif
+    }
+
+    private func liveWaves(level: Double) -> some View {
+        // Paused behind menus: the wave would redraw at full frame rate under a sheet.
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reducedMotion || covered)) { timeline in
+            water(level: level, t: reducedMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate)
+        }
+    }
+
+    private func water(level: Double, t: Double) -> some View {
+        Canvas { context, size in
+            let top = size.height * (1 - level)
+            var water = Path()
+            water.move(to: CGPoint(x: 0, y: size.height))
+            for x in stride(from: 0.0, through: size.width, by: 6) {
+                let y = top + 4 * sin(x / 28 + t * 2) + 2 * sin(x / 11 - t * 3)
+                water.addLine(to: CGPoint(x: x, y: y))
+            }
+            water.addLine(to: CGPoint(x: size.width, y: size.height))
+            water.closeSubpath()
+            context.fill(water, with: .color(Theme.tide.opacity(high ? 0.22 : 0.3)))
+            var crest = Path()
+            for x in stride(from: 0.0, through: size.width, by: 6) {
+                let y = top + 4 * sin(x / 28 + t * 2) + 2 * sin(x / 11 - t * 3)
+                if x == 0 { crest.move(to: CGPoint(x: x, y: y)) } else { crest.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(crest, with: .color(.white.opacity(high ? 0.35 : 0.5)), lineWidth: 2)
+        }
     }
 }
 
@@ -870,6 +932,35 @@ private struct ToastView: View {
     @State private var visible: Toast?
 
     var body: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the toast slides in and out on the virtual clock.
+            DirectorFrame { date in
+                let age = Director.shared.seconds(date) - (Director.shared.toastAt ?? -100)
+                ZStack {
+                    if let toast = game.toast, age < 3.3 {
+                        Text(toast.text)
+                            .font(Theme.body(14, .heavy))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                            .background(.black.opacity(0.85), in: Capsule())
+                            .padding(.horizontal, 16)
+                            .offset(y: CGFloat(-40 * (1 - Director.ease(age, 0.3)) - 40 * Director.ease(age - 3, 0.3)))
+                            .opacity(Director.ease(age, 0.2) * (1 - Director.ease(age - 3, 0.3)))
+                    }
+                }
+                .padding(.top, 60)
+                .allowsHitTesting(false)
+            }
+        } else {
+            live
+        }
+        #else
+        live
+        #endif
+    }
+
+    private var live: some View {
         ZStack {
             if let toast = visible {
                 Text(toast.text)

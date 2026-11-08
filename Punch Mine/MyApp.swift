@@ -19,6 +19,11 @@ import SwiftUI
                 UserDefaults.standard.set(data, forKey: "punchmine.save.v1")
             }
         }
+        // Director mode (`-scenario <name>`): a throwaway profile with no analytics log (Director/DirectorMode.swift).
+        if Director.shared.isActive {
+            _game = StateObject(wrappedValue: GameModel(analytics: Analytics(sinks: [], stateKey: "punchmine.director.analytics")))
+            return
+        }
         #endif
         _game = StateObject(wrappedValue: GameModel())
     }
@@ -34,6 +39,14 @@ import SwiftUI
                 .environmentObject(cloud)
                 .environmentObject(gameCenter)
                 .onAppear {
+                    #if DEBUG
+                    // Director mode: no store, iCloud, consent form, ads or Game Center; the game only.
+                    if Director.shared.isActive {
+                        feedback.attach(to: game)
+                        game.start()
+                        return
+                    }
+                    #endif
                     store.attach(to: game)
                     // Debug launches with a made-up save never touch the real iCloud backup.
                     if !Self.debugSaveLaunch { cloud.attach(to: game) }
@@ -43,6 +56,12 @@ import SwiftUI
                     game.start()
                 }
                 .onChange(of: scenePhase) { phase in
+                    #if DEBUG
+                    if Director.shared.isActive {
+                        if phase == .active { game.start() } else { game.stop() }
+                        return
+                    }
+                    #endif
                     if phase == .active {
                         game.start()
                         cloud.check()

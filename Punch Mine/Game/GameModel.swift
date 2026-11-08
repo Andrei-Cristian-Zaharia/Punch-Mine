@@ -240,6 +240,16 @@ final class GameModel: ObservableObject {
 
     init(analytics: Analytics = .makeDefault()) {
         self.analytics = analytics
+        #if DEBUG
+        // Director mode (Director/DirectorMode.swift): a throwaway in-memory profile, never read from or saved to disk.
+        if let directed = Director.shared.startingSave() {
+            let date = Director.shared.gameDate
+            now = { date }
+            load(directed)
+            finishLoading()
+            return
+        }
+        #endif
         if let data = UserDefaults.standard.data(forKey: Self.saveKey) {
             if let save = try? JSONDecoder().decode(SaveData.self, from: data) {
                 load(save)
@@ -409,6 +419,10 @@ final class GameModel: ObservableObject {
 
     func start() {
         guard loop == nil else { return }
+        #if DEBUG
+        // Offline capture: Director steps the game by exactly 1/60 s per recorded frame instead.
+        if Director.shared.isCapturing { return }
+        #endif
         analytics.sessionStarted()
         collectOfflineReport()
         loop = Task { [weak self] in
@@ -647,7 +661,7 @@ final class GameModel: ObservableObject {
         var raw = punchDamage * focusMultiplier
         if cursed { raw *= Curse.damageFactor }
         if snowballRemaining > 0 { raw *= ConsumableRules.snowballFactor }
-        var isCrit = Double.random(in: 0..<1) < critChance
+        var isCrit = diceRoll() < critChance
         // Heart of the Crypt: punches right after it returns always crit.
         if zone == .crypt, index == Conquest.heartIndex, heartBlock != nil, !ghostsFaded,
            clock - ghostsReturnedAt < Haunt.returnCritWindow {
@@ -771,7 +785,7 @@ final class GameModel: ObservableObject {
         let block = run.blocks[index]
         let generation = areaGeneration
         run.blocks[index].hp = 0
-        let lucky = luckyChance > 0 && Double.random(in: 0..<1) < luckyChance
+        let lucky = luckyChance > 0 && diceRoll() < luckyChance
         var payout = lucky ? block.reward * 2 : block.reward
         if highTide { payout *= Tide.rewardFactor }
         if block.isTreasure {
@@ -795,10 +809,10 @@ final class GameModel: ObservableObject {
         if let event = block.material.season { collectEventPoints(event, at: index) }
         if block.isTreasure {
             analytics.log("treasure_broken", ["zone": .string(zone.rawValue), "area": .int(run.area), "reward": .double(block.reward)])
-            if Double.random(in: 0..<1) < ItemRules.treasureChestChance {
-                awardChest(Double.random(in: 0..<1) < ItemRules.treasureIronChance ? .iron : .wooden, reason: "treasure")
+            if diceRoll() < ItemRules.treasureChestChance {
+                awardChest(diceRoll() < ItemRules.treasureIronChance ? .iron : .wooden, reason: "treasure")
                 // Lockpick and Chest Hunter can add a second chest to a drop, never one from nothing.
-                if Double.random(in: 0..<1) < Config.lockpickPerLevel * Double(run.level(.lockpick)) + 0.05 * Double(level(.chestHunter)) {
+                if diceRoll() < Config.lockpickPerLevel * Double(run.level(.lockpick)) + 0.05 * Double(level(.chestHunter)) {
                     awardChest(.wooden, reason: "lockpick")
                 }
             }
@@ -947,7 +961,7 @@ final class GameModel: ObservableObject {
     private func zap(count: Int, raw: Double) {
         let generation = areaGeneration
         var open = run.blocks.filter { !$0.isBroken && !$0.isTreasure && $0.material != .heartPart }.map(\.id)
-        open.shuffle()
+        open = diceShuffled(open)
         if !open.isEmpty { emit(.zap) }
         for index in open.prefix(count) where generation == areaGeneration {
             let hit = Config.hitDamage(raw: raw, armor: run.blocks[index].armor, penetration: penetration)
@@ -1069,7 +1083,7 @@ final class GameModel: ObservableObject {
     func openChest(_ tier: ChestTier) {
         guard chestCount(tier) > 0 else { return }
         chests[tier.rawValue, default: 0] -= 1
-        var rarity = tier.rollRarity(Double.random(in: 0..<1), luck: chestLuck)
+        var rarity = tier.rollRarity(diceRoll(), luck: chestLuck)
         // Bad-luck protection, counted over every chest opened.
         var guaranteed = false
         if rarity < .legendary && chestsSinceLegendary + 1 >= ItemRules.legendaryPity {
@@ -1081,7 +1095,7 @@ final class GameModel: ObservableObject {
         chestsSinceLegendary = rarity >= .legendary ? 0 : chestsSinceLegendary + 1
         stats.chestsOpened += 1
         let pool = ItemDef.chestPool.filter { $0.rarity == rarity }
-        guard let item = pool.randomElement() else { return }
+        guard let item = dicePick(pool) else { return }
         let isNew = items[item.id] == nil
         var gained = tier.bonusScrap
         if isNew {
@@ -1141,13 +1155,13 @@ final class GameModel: ObservableObject {
     private func applyItemPunchEffects(at index: Int, raw: Double) {
         let generation = areaGeneration
         let echo = itemBonus(.doubleHit)
-        if echo > 0, Double.random(in: 0..<1) < echo, !run.blocks[index].isBroken {
+        if echo > 0, diceRoll() < echo, !run.blocks[index].isBroken {
             let hit = Config.hitDamage(raw: raw, armor: run.blocks[index].armor, penetration: penetration)
             addFloater(index, text: "ECHO " + NumberText.hit(hit), kind: .hit)
             applyDamage(hit, to: index)
         }
         let stomp = itemBonus(.stomp)
-        if stomp > 0, generation == areaGeneration, Double.random(in: 0..<1) < stomp {
+        if stomp > 0, generation == areaGeneration, diceRoll() < stomp {
             for n in neighbors(of: index) where generation == areaGeneration && !run.blocks[n].isBroken {
                 applyDamage(Config.hitDamage(raw: raw * 0.5, armor: run.blocks[n].armor, penetration: penetration), to: n)
             }
@@ -1318,7 +1332,7 @@ final class GameModel: ObservableObject {
             daily.doubledDay = Daily.dayKey(Date())
             toast = Toast(text: "Daily reward doubled: +\(reward.text)")
         case .freeGadget:
-            let gadget = Consumable.allCases.filter(\.isGadget).randomElement()!
+            let gadget = dicePick(Consumable.allCases.filter(\.isGadget))!
             consumables[gadget.rawValue, default: 0] += 1
             toast = Toast(text: "Free gadget: \(gadget.name)!")
         case .eventRush:
@@ -1421,7 +1435,7 @@ final class GameModel: ObservableObject {
         default: break
         }
         floaters.append(Floater(blockIndex: index, text: text, kind: kind, born: clock,
-                                jitter: Double.random(in: -10...10)))
+                                jitter: -10 + 20 * diceRoll()))
         if floaters.count > 40 { floaters.removeFirst(floaters.count - 40) }
     }
 
@@ -1797,6 +1811,10 @@ final class GameModel: ObservableObject {
         flushPlayTime()
         guard !isLoading else { return }
         sinceSave = 0
+        #if DEBUG
+        // Director mode plays on a throwaway profile: nothing is ever written.
+        if Director.shared.isActive { return }
+        #endif
         lastActive = Date()
         if let encoded = encodedSaveWithoutSaving() {
             UserDefaults.standard.set(encoded, forKey: Self.saveKey)
@@ -2298,7 +2316,7 @@ extension GameModel {
             multiplier *= WeeklyHeart.brittleCritFactor
         }
         let returnCrit = f.modifier == .phasing && f.elapsed - f.returnedAt <= WeeklyHeart.phaseReturnCritWindow
-        let crit = returnCrit || Double.random(in: 0..<1) < chance
+        let crit = returnCrit || diceRoll() < chance
         let hit = weeklyPunch * (crit ? multiplier : 1) * weeklyArmourFactor(f.modifier)
         f.lastHit = hit
         f.lastCrit = crit
@@ -2482,7 +2500,7 @@ extension GameModel {
         case .timeBell: bellRemaining += ConsumableRules.bellSeconds
         case .firework:
             let open = run.blocks.filter { !$0.isBroken && $0.material != .heartPart }
-            if let center = open.randomElement() {
+            if let center = dicePick(open) {
                 let row = center.id / Config.columns, col = center.id % Config.columns
                 let generation = areaGeneration
                 let hit = punchDamage * ConsumableRules.fireworkPunches
@@ -2556,7 +2574,7 @@ extension GameModel {
         scrap -= Forge.scrapCost(rarity)
         let pool = ItemDef.chestPool.filter { $0.rarity == target }
         let fresh = pool.filter { items[$0.id] == nil }
-        guard let item = (fresh.isEmpty ? pool : fresh).randomElement() else { return }
+        guard let item = dicePick(fresh.isEmpty ? pool : fresh) else { return }
         let isNew = items[item.id] == nil
         var gained = 0
         if isNew {
@@ -2704,7 +2722,7 @@ extension GameModel {
         recentTaps.removeAll { clock - $0 > 1 }
         guard recentTaps.count < Config.tapCapPerSecond else { return }
         recentTaps.append(clock)
-        let crit = Double.random(in: 0..<1) < weeklyCritChance
+        let crit = diceRoll() < weeklyCritChance
         let hit = weeklyPunch * (crit ? weeklyCritMultiplier : 1)
         f.punches += 1
         f.lastHit = hit
@@ -2826,3 +2844,83 @@ extension GameModel {
         save()
     }
 }
+
+// MARK: - Dice
+
+extension GameModel {
+    /// Every roll made in play, in 0..<1. Director launches (Debug only) draw them from the clip's seed.
+    private func diceRoll() -> Double {
+        #if DEBUG
+        if let value = Director.shared.nextRoll() { return value }
+        #endif
+        return Double.random(in: 0..<1)
+    }
+
+    private func dicePick<T>(_ items: [T]) -> T? {
+        #if DEBUG
+        if Director.shared.isActive, !items.isEmpty { return items[min(items.count - 1, Int(diceRoll() * Double(items.count)))] }
+        #endif
+        return items.randomElement()
+    }
+
+    private func diceShuffled<T>(_ items: [T]) -> [T] {
+        #if DEBUG
+        if Director.shared.isActive {
+            var rest = items, out: [T] = []
+            while !rest.isEmpty { out.append(rest.remove(at: min(rest.count - 1, Int(diceRoll() * Double(rest.count))))) }
+            return out
+        }
+        #endif
+        return items.shuffled()
+    }
+}
+
+#if DEBUG
+// MARK: - Director mode hooks (Debug builds only, see Director/DirectorMode.swift)
+
+extension GameModel {
+    /// Your punch before Fever, Focus and crits, in the active zone.
+    var directorBasePunch: Double { basePunch(for: run, in: zone) }
+
+    /// The crew's damage per second at full swing (a Blaster lands on about 4 blocks).
+    var directorMinerDPS: Double {
+        MinerKind.allCases.reduce(0) { sum, kind in
+            sum + Double(minerCount(kind)) * minerHit * kind.damageFactor * (kind == .blaster ? 4 : 1) / minerInterval(kind, run: run)
+        }
+    }
+
+    var directorAreaGeneration: Int { areaGeneration }
+    var directorVentTimer: Double { ventTimer }
+    var directorTideTimer: Double { tideTimer }
+
+    func directorSetStar(_ star: StarPerk, level: Int) { stars[star.rawValue] = max(0, level) }
+    func directorSetLevel(_ kind: UpgradeKind, _ level: Int) { run.setLevel(kind, level) }
+
+    /// Replaces the area's layout (same area, same generator), e.g. to pick a crystal-rich one.
+    func directorSetBlocks(_ blocks: [Block]) {
+        run.blocks = blocks
+        hitPulses = [:]
+        minerTargets = []
+        regrowAfter = [:]
+        regrowCap = [:]
+    }
+
+    func directorSetHP(_ index: Int, _ hp: Double) {
+        guard run.blocks.indices.contains(index), !run.blocks[index].isBroken else { return }
+        run.blocks[index].hp = min(run.blocks[index].maxHP, max(1, hp.rounded()))
+    }
+
+    /// Sunken Ruins: seconds already counted toward the next high tide.
+    func directorSetTideTimer(_ seconds: Double) {
+        guard tideRemaining == 0 else { return }
+        tideTimer = min(Tide.interval, max(0, seconds))
+        tideCharge = min(1, tideTimer / Tide.interval)
+    }
+
+    /// Magma Depths: seconds already counted toward the next vent eruption.
+    func directorSetVentTimer(_ seconds: Double) {
+        ventTimer = min(Magma.ventInterval, max(0, seconds))
+        ventCharge = min(1, ventTimer / Magma.ventInterval)
+    }
+}
+#endif
