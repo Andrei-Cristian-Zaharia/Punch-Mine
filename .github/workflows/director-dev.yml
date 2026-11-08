@@ -43,7 +43,8 @@ jobs:
           test -f "$bin"
           found=0
           if strings -a "$bin" | grep -E '\[Director\]|scenarioSeed|scenarioCapture|DirectorCapture'; then found=1; fi
-          if nm -a "$bin" | grep -E 'Director'; then found=1; fi
+          # Real symbols only (not the debug map, which names the empty source files); not "Directory".
+          if nm "$bin" | grep -E 'Director([^y]|$)'; then found=1; fi
           if [ "$found" -ne 0 ]; then echo "::error::Director code found in the Release binary"; exit 1; fi
           echo "Release binary has no Director strings or symbols."
 
@@ -90,9 +91,9 @@ jobs:
 
       - name: Validate inputs
         env:
-          IN_SCENARIO: heartFight,quarryMining,weeklyHeart
-          IN_COUNT: 3
-          IN_SEED: 1000
+          IN_SCENARIO: all
+          IN_COUNT: 11
+          IN_SEED: 2000
           IN_DURATION: 
         run: |
           set -euo pipefail

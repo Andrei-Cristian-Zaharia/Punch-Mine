@@ -216,14 +216,17 @@ final class Director {
     private var boostDone = false
     private var conquestSince: Double?
 
-    // Pacer
-    private var pace = 1.0
+    // Pacer. Starts a little low: the estimate leaves out some of the splash, zaps and Titan punches.
+    private var pace = 0.8
     private var areaGen = -1
     private var areaStart = 0.0
     private var areaNumber = 0
     private var midBoost = false
     private var heartCheck: (t: Double, hp: Double)?
     private var heartAlive = false
+    private var heartLastT = 0.0
+    private var heartPowerSeconds = 0.0
+    private var heartAdjustedAt = 0.0
     private var lastAreaSeconds: Double?
 
     // Scripted twists
@@ -863,7 +866,8 @@ final class Director {
                 nextEruption = plan.scenario == .magmaVents && eruptions < 2 ? t + plan.ventGap : nil
             } else if ventsUp {
                 if t >= at - 0.05 {
-                    game.directorSetVentTimer(Magma.ventInterval - 1.0 / 60)
+                    // Half a frame short: the next tick crosses the interval for sure (no float round-off).
+                    game.directorSetVentTimer(Magma.ventInterval - 0.5 / 60)
                 } else {
                     game.directorSetVentTimer(max(0, Magma.ventInterval - (at - t)))
                 }
@@ -958,28 +962,34 @@ final class Director {
         setBasePunch(dps / damagePerBase(plan, game: game), game: game)
     }
 
-    /// The Heart: lands the killing punch near `killAt`, re-checked every few seconds from the HP really lost.
+    /// The Heart: lands the killing punch near `killAt`. Every second it measures how much HP one unit of
+    /// punch power has taken per second so far (over the whole fight, so ring stretches, sweeps, fades and
+    /// heals average out) and sets the power for the HP left, in steps of at most ×1.6.
     private func paceHeart(_ plan: DirectorPlan, game: GameModel, force: Bool = false) {
         guard let heart = game.heartBlock, !heart.isBroken else { return }
         let left = max(1.5, plan.killAt - t)
-        let heartShare = 0.75
+        let dt = max(0, t - heartLastT)
+        heartLastT = t
         if force || heartCheck == nil {
             let rate = heart.hp / left
-            setBasePunch(rate / damagePerBase(plan, game: game, heartShare: heartShare), game: game)
+            setBasePunch(rate / damagePerBase(plan, game: game, heartShare: 0.75), game: game)
             heartCheck = (t, heart.hp)
+            heartPowerSeconds = 0
+            heartAdjustedAt = t
             return
         }
-        guard let check = heartCheck, t - check.t >= 4 else { return }
+        heartPowerSeconds += game.directorBasePunch * dt
+        guard let check = heartCheck, t - check.t >= 2, t - heartAdjustedAt >= 1, heartPowerSeconds > 0 else { return }
+        heartAdjustedAt = t
         let lost = check.hp - heart.hp
-        let measured = lost / (t - check.t)
-        let wanted = heart.hp / left
-        heartCheck = (t, heart.hp)
-        guard measured > 0 else {
-            setBasePunch(game.directorBasePunch * 2, game: game)
+        let power = game.directorBasePunch
+        guard lost > 0 else {
+            setBasePunch(power * 1.6, game: game)
             return
         }
-        let factor = min(4, max(0.3, wanted / measured))
-        setBasePunch(game.directorBasePunch * factor, game: game)
+        let perPower = lost / heartPowerSeconds
+        let wanted = heart.hp / left / perPower
+        setBasePunch(power * min(1.6, max(0.6, wanted / power)), game: game)
         if t > plan.killAt + 4 { warn("heart", String(format: "the Heart is still at %.0f%% after %.0fs", heart.hpFraction * 100, t)) }
     }
 
