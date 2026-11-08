@@ -249,6 +249,24 @@ struct PetBuddy: View {
     @State private var up = false
 
     var body: some View {
+        #if DEBUG
+        if Director.shared.isCapturing, let pet = game.activePetDef {
+            // Offline capture: the bob follows the virtual clock.
+            DirectorFrame { date in
+                PetArt(pet: pet, size: 40)
+                    .offset(y: game.settings.reducedMotion ? 3 : CGFloat(-1 + 4 * cos(.pi * Director.shared.seconds(date) / 1.1)))
+                    .allowsHitTesting(false)
+                    .accessibilityLabel("\(pet.name) is with you")
+            }
+        } else {
+            live
+        }
+        #else
+        live
+        #endif
+    }
+
+    @ViewBuilder private var live: some View {
         if let pet = game.activePetDef {
             PetArt(pet: pet, size: 40)
                 .offset(y: up && !game.settings.reducedMotion ? -5 : 3)

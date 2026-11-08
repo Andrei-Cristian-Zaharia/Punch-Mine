@@ -316,9 +316,7 @@ struct WeeklyFightView: View {
             }
             VStack(spacing: 0) {
                 Text("TIER").font(Theme.body(12, .black)).tracking(3).foregroundStyle(Theme.textFaint)
-                Text("\(f.tier)").font(Theme.display(64)).monospacedDigit()
-                    .scaleEffect(tierFlash % 2 == 1 && !game.settings.reducedMotion ? 1.15 : 1)
-                    .animation(.spring(response: 0.25, dampingFraction: 0.4), value: tierFlash)
+                tierNumber(f.tier)
             }
             ZStack {
                 WeeklyHeartArt(fight: f, palette: palette, reducedMotion: game.settings.reducedMotion)
@@ -358,10 +356,41 @@ struct WeeklyFightView: View {
         .padding(20)
         .onChange(of: f.punches) { _ in
             let text = f.lastHit > 0 ? NumberText.hit(f.lastHit) : "PHASE"
-            pops.append(HitPop(id: f.punches, text: text, crit: f.lastCrit, x: CGFloat.random(in: -110...110), y: CGFloat.random(in: -40...60)))
+            pops.append(HitPop(id: f.punches, text: text, crit: f.lastCrit, x: Self.popOffset(-110...110), y: Self.popOffset(-40...60)))
             if pops.count > 6 { pops.removeFirst(pops.count - 6) }
         }
         .onChange(of: f.tier) { _ in tierFlash += 1 }
+    }
+
+    @ViewBuilder private func tierNumber(_ tier: Int) -> some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the number pops on every new tier, on the virtual clock.
+            DirectorFrame { date in
+                let age = Director.shared.seconds(date) - Director.shared.weeklyTierAt
+                Text("\(tier)").font(Theme.display(64)).monospacedDigit()
+                    .scaleEffect(game.settings.reducedMotion || age > 0.8 ? 1 : CGFloat(1 + 0.15 * exp(-7 * age) * cos(2 * .pi * age / 0.5)))
+            }
+        } else {
+            liveTierNumber(tier)
+        }
+        #else
+        liveTierNumber(tier)
+        #endif
+    }
+
+    private func liveTierNumber(_ tier: Int) -> some View {
+        Text("\(tier)").font(Theme.display(64)).monospacedDigit()
+            .scaleEffect(tierFlash % 2 == 1 && !game.settings.reducedMotion ? 1.15 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.4), value: tierFlash)
+    }
+
+    /// Where a hit number appears around the Heart (seeded in Director mode, Debug only).
+    private static func popOffset(_ range: ClosedRange<CGFloat>) -> CGFloat {
+        #if DEBUG
+        if Director.shared.isActive { return CGFloat(Director.shared.viewRandom(Double(range.lowerBound)...Double(range.upperBound))) }
+        #endif
+        return CGFloat.random(in: range)
     }
 
     private func liveStat(_ label: String, _ value: String) -> some View {
@@ -379,7 +408,7 @@ struct WeeklyFightView: View {
         let best = game.weekly.best
         return VStack(spacing: 14) {
             Spacer()
-            Text("TIME!").font(Theme.display(44)).foregroundStyle(Theme.gold)
+            timeTitle
             Text("\(WeeklyHeart.scoreText(result.score)) tiers").font(Theme.display(40)).monospacedDigit()
             Text(result.isBest ? "New best this week!" : "Best this week: \(WeeklyHeart.scoreText(best))")
                 .font(Theme.body(17, .heavy)).foregroundStyle(result.isBest ? Theme.gold : Theme.textMuted)
@@ -409,6 +438,23 @@ struct WeeklyFightView: View {
         }
         .padding(20)
     }
+
+    @ViewBuilder private var timeTitle: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: "TIME!" springs in on the virtual clock.
+            DirectorFrame { date in
+                let age = Director.shared.seconds(date) - (Director.shared.weeklyEndAt ?? Director.shared.seconds(date))
+                Text("TIME!").font(Theme.display(44)).foregroundStyle(Theme.gold)
+                    .scaleEffect(CGFloat(Director.pop(age, from: 0.4)))
+            }
+        } else {
+            Text("TIME!").font(Theme.display(44)).foregroundStyle(Theme.gold)
+        }
+        #else
+        Text("TIME!").font(Theme.display(44)).foregroundStyle(Theme.gold)
+        #endif
+    }
 }
 
 /// A hit number that floats up and fades.
@@ -418,11 +464,37 @@ private struct HitPopView: View {
     @State private var risen = false
 
     var body: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the number rises and fades on the virtual clock.
+            DirectorFrame { date in
+                let born = Director.shared.weeklyPunchTime(pop.id) ?? -100
+                let p = min(1, max(0, (Director.shared.seconds(date) - born) / 0.8))
+                let eased = 1 - (1 - p) * (1 - p)
+                label
+                    .offset(x: pop.x, y: pop.y + (reducedMotion ? -20 : -20 - 90 * eased))
+                    .opacity(1 - eased)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        } else {
+            live
+        }
+        #else
+        live
+        #endif
+    }
+
+    private var label: some View {
         Text(pop.text + (pop.crit ? "!" : ""))
             .font(Theme.display(pop.crit ? 34 : 24))
             .foregroundStyle(pop.crit ? Theme.gold : .white)
             .shadow(color: .black.opacity(0.8), radius: 0, x: 0, y: 2)
             .rotationEffect(.degrees(pop.crit ? -8 : 0))
+    }
+
+    private var live: some View {
+        label
             .offset(x: pop.x, y: pop.y + (risen && !reducedMotion ? -110 : -20))
             .opacity(risen ? 0 : 1)
             .onAppear { withAnimation(.easeOut(duration: 0.8)) { risen = true } }
@@ -462,10 +534,43 @@ struct WeeklyHeartArt: View {
     @State private var glow = false
 
     var body: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: glow, hit squash and the Phantom fade follow the virtual clock.
+            DirectorFrame { date in
+                let t = Director.shared.seconds(date)
+                let fade = Director.ease(t - Director.shared.weeklyFadeAt, 0.25)
+                art(glow: 0.5 - 0.5 * cos(.pi * t / 1.2))
+                    .scaleEffect(reducedMotion ? 1 : Director.shared.weeklySquash(at: date))
+                    .opacity(fight.faded ? 1 - 0.7 * fade : 0.3 + 0.7 * fade)
+            }
+        } else {
+            live
+        }
+        #else
+        live
+        #endif
+    }
+
+    private var live: some View {
+        art(glow: glow ? 1 : 0)
+            .scaleEffect(squash)
+            .opacity(fight.faded ? 0.3 : 1)
+            .animation(.easeInOut(duration: 0.25), value: fight.faded)
+            .onAppear { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glow = true } }
+            .onChange(of: fight.punches) { _ in
+                guard !reducedMotion else { return }
+                squash = 0.93
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.45)) { squash = 1 }
+            }
+    }
+
+    /// `glow` 0…1: the halo breathes and the core shines brighter.
+    private func art(glow: Double) -> some View {
         ZStack {
             Circle()
                 .fill(RadialGradient(colors: [Color(hex: palette.edge).opacity(0.55), .clear], center: .center, startRadius: 30, endRadius: 170))
-                .scaleEffect(glow && !reducedMotion ? 1.08 : 0.95)
+                .scaleEffect(reducedMotion ? 0.95 : 0.95 + 0.13 * glow)
             RoundedRectangle(cornerRadius: 32)
                 .fill(RadialGradient(colors: palette.gradient.map { Color(hex: $0) }, center: .center, startRadius: 6, endRadius: 190))
                 .padding(18)
@@ -473,7 +578,7 @@ struct WeeklyHeartArt: View {
             Image(systemName: "suit.heart.fill")
                 .resizable().scaledToFit()
                 .foregroundStyle(Color(hex: palette.core).opacity(0.92))
-                .shadow(color: Color(hex: palette.edge), radius: glow ? 16 : 6)
+                .shadow(color: Color(hex: palette.edge), radius: 6 + 10 * glow)
                 .padding(78)
             Canvas { context, size in
                 // Cracks grow with the damage to this tier.
@@ -511,15 +616,6 @@ struct WeeklyHeartArt: View {
             }
         }
         .aspectRatio(1, contentMode: .fit)
-        .scaleEffect(squash)
-        .opacity(fight.faded ? 0.3 : 1)
-        .animation(.easeInOut(duration: 0.25), value: fight.faded)
-        .onAppear { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glow = true } }
-        .onChange(of: fight.punches) { _ in
-            guard !reducedMotion else { return }
-            squash = 0.93
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.45)) { squash = 1 }
-        }
     }
 }
 

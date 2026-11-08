@@ -25,27 +25,48 @@ struct BlockView: View {
                     .overlay(RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(Color(hex: 0x2E2620), style: StrokeStyle(lineWidth: 2, dash: [5, 4])))
             } else {
-                solid
-                    .overlay(alignment: .bottom) {
-                        if showHealth && block.hpFraction < 1 && !block.isTreasure {
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.black.opacity(0.6))
-                                    Capsule().fill(Theme.ember).frame(width: geo.size.width * block.hpFraction)
-                                }
-                            }
-                            .frame(height: 4)
-                            .padding(.horizontal, 8)
-                            .padding(.bottom, 6)
-                            .accessibilityHidden(true)
-                        }
+                #if DEBUG
+                if Director.shared.isCapturing {
+                    // Offline capture: squash and ghost fade follow the virtual clock.
+                    DirectorFrame { date in
+                        withHealth
+                            .scaleEffect(reducedMotion ? 1 : Director.shared.squash(block.id, at: date, depth: 0.12))
+                            .opacity(Director.shared.ghostOpacity(block.id, faded: faded, at: date))
                     }
-                    .scaleEffect(squash)
-                    .opacity(faded ? 0.25 : 1)
-                    .animation(reducedMotion ? nil : .easeInOut(duration: 0.35), value: faded)
+                } else {
+                    live
+                }
+                #else
+                live
+                #endif
             }
         }
         .onChange(of: pulse) { _ in squashOnHit() }
+    }
+
+    private var live: some View {
+        withHealth
+            .scaleEffect(squash)
+            .opacity(faded ? 0.25 : 1)
+            .animation(reducedMotion ? nil : .easeInOut(duration: 0.35), value: faded)
+    }
+
+    private var withHealth: some View {
+        solid
+            .overlay(alignment: .bottom) {
+                if showHealth && block.hpFraction < 1 && !block.isTreasure {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.black.opacity(0.6))
+                            Capsule().fill(Theme.ember).frame(width: geo.size.width * block.hpFraction)
+                        }
+                    }
+                    .frame(height: 4)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                    .accessibilityHidden(true)
+                }
+            }
     }
 
     /// Quick squash then a bouncy return.
@@ -107,6 +128,38 @@ struct FloaterView: View {
     @State private var risen = false
 
     var body: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the number rises and fades on the game clock (it was born on it).
+            DirectorFrame { _ in
+                let p = min(1, max(0, (Director.shared.gameClock - floater.born) / 0.85))
+                let eased = 1 - (1 - p) * (1 - p)
+                label
+                    .offset(x: floater.jitter, y: reducedMotion ? -8 : -8 - 36 * eased)
+                    .opacity(1 - eased)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        } else {
+            live
+        }
+        #else
+        live
+        #endif
+    }
+
+    private var live: some View {
+        label
+            .offset(x: floater.jitter, y: risen && !reducedMotion ? -44 : -8)
+            .opacity(risen ? 0 : 1)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.85)) { risen = true }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var label: some View {
         Text(floater.text)
             .font(font)
             // One line at full width, centred on the block, even when it is wider than the block.
@@ -115,13 +168,6 @@ struct FloaterView: View {
             .foregroundStyle((floater.kind == .hit || floater.kind == .crit) ? (tint ?? color) : color)
             .shadow(color: .black.opacity(0.8), radius: 0, x: 0, y: 2)
             .rotationEffect(.degrees(floater.kind == .crit ? -8 : 0))
-            .offset(x: floater.jitter, y: risen && !reducedMotion ? -44 : -8)
-            .opacity(risen ? 0 : 1)
-            .onAppear {
-                withAnimation(.easeOut(duration: 0.85)) { risen = true }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 
     private var font: Font {
@@ -156,6 +202,43 @@ struct HeartView: View {
     @State private var glow = false
 
     var body: some View {
+        #if DEBUG
+        if Director.shared.isCapturing {
+            // Offline capture: the glow breathes and the hit squash plays on the virtual clock.
+            DirectorFrame { date in
+                let t = Director.shared.seconds(date)
+                heart(glow: reducedMotion ? 0 : 0.5 - 0.5 * cos(.pi * t / 1.1))
+                    .scaleEffect(reducedMotion ? 1 : Director.shared.squash(Conquest.heartIndex, at: date, depth: 0.03))
+                    .accessibilityHidden(true)
+            }
+        } else {
+            live
+        }
+        #else
+        live
+        #endif
+    }
+
+    private var live: some View {
+        heart(glow: glow ? 1 : 0)
+            .scaleEffect(squash)
+            .onAppear {
+                guard !reducedMotion else { return }
+                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { glow = true }
+            }
+            .onChange(of: pulse) { _ in
+                guard !reducedMotion else { return }
+                withAnimation(.easeOut(duration: 0.04)) { squash = 0.97 }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(40))
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.5)) { squash = 1 }
+                }
+            }
+            .accessibilityHidden(true)
+    }
+
+    /// `glow` 0…1: the core breathes and the edge shines brighter.
+    private func heart(glow: Double) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18)
                 .fill(RadialGradient(colors: palette.gradient.map { Color(hex: $0) }, center: .center, startRadius: 4, endRadius: 140))
@@ -164,7 +247,7 @@ struct HeartView: View {
                 .resizable().scaledToFit()
                 .foregroundStyle(Color(hex: palette.core).opacity(0.9))
                 .padding(44)
-                .scaleEffect(glow && !reducedMotion ? 1.06 : 0.96)
+                .scaleEffect(reducedMotion ? 0.96 : 0.96 + 0.10 * glow)
             VStack {
                 Text(rank == 0 ? zone.heartName.uppercased() : "HEART · DEPTH \(Conquest.heartArea + rank * Conquest.endlessHeartEvery)")
                     .font(Theme.body(11, .black)).tracking(0.3)
@@ -188,21 +271,7 @@ struct HeartView: View {
             }
             .padding(10)
         }
-        .shadow(color: Color(hex: palette.edge).opacity(glow ? 0.8 : 0.4), radius: glow ? 18 : 10)
-        .scaleEffect(squash)
-        .onAppear {
-            guard !reducedMotion else { return }
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { glow = true }
-        }
-        .onChange(of: pulse) { _ in
-            guard !reducedMotion else { return }
-            withAnimation(.easeOut(duration: 0.04)) { squash = 0.97 }
-            Task {
-                try? await Task.sleep(for: .milliseconds(40))
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.5)) { squash = 1 }
-            }
-        }
-        .accessibilityHidden(true)
+        .shadow(color: Color(hex: palette.edge).opacity(0.4 + 0.4 * glow), radius: 10 + 8 * glow)
     }
 
     /// Molten red for the Quarry, icy blue crystal for the Caverns, white-hot for the Depths, sea-green for the Ruins,
